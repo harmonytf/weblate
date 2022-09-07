@@ -69,15 +69,20 @@ class VDFFormat(DictStoreMixin, TTKitFormat):
         return "txt"
 
     @classmethod
-    def get_language_full(cls, code):
-        return vdfLanguageMapping[code] if code in vdfLanguageMapping else code
+    def get_language_full(cls, lang):
+        code = str(lang)
+        fallback = str(lang)
+        if not isinstance(lang, str):
+            code = lang.code
+            fallback = lang.name.lower().replace(" ", "_")
+        return vdfLanguageMapping[code] if code in vdfLanguageMapping else fallback
 
     @classmethod
     def get_language_filename(cls, mask: str, code: str) -> str:
         return mask.replace("*", cls.get_language_full(code))
 
     @classmethod
-    def _get_new_file_content(cls, language: str):
+    def _get_new_file_content(cls, language):
         result = cls.new_translation
         if isinstance(result, str):
             result = result.replace('english', cls.get_language_full(language)).encode()
@@ -103,7 +108,7 @@ class VDFFormat(DictStoreMixin, TTKitFormat):
             raise ValueError("Not supported")
         else:
             with open(filename, "wb") as output:
-                output.write(cls._get_new_file_content(language.code if not isinstance(language, str) else str(language))) # to insert language name where it belongs
+                output.write(cls._get_new_file_content(language)) # to insert language name where it belongs
 
 class VDFFormatUTF16(VDFFormat):
     name = _("Valve VDF (Source Engine) localization file (UTF-16-LE)")
