@@ -108,6 +108,8 @@ class WeblateChecksConf(AppConf):
         "weblate.checks.glossary.GlossaryCheck",
         "weblate.checks.source_engine.MatchingColors",
         "weblate.checks.source_engine.MatchingParams",
+        "weblate.checks.source_engine.MatchingButtons",
+        "weblate.checks.source_engine.MatchingBinds",
     )
 
     class Meta:
