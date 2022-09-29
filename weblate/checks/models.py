@@ -106,6 +106,8 @@ class WeblateChecksConf(AppConf):
         "weblate.checks.source.LongUntranslatedCheck",
         "weblate.checks.format.MultipleUnnamedFormatsCheck",
         "weblate.checks.glossary.GlossaryCheck",
+        "weblate.checks.source_engine.MatchingColors",
+        "weblate.checks.source_engine.MatchingParams",
     )
 
     class Meta:
