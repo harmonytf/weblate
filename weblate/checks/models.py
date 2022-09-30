@@ -110,6 +110,8 @@ class WeblateChecksConf(AppConf):
         "weblate.checks.source_engine.MatchingParams",
         "weblate.checks.source_engine.MatchingButtons",
         "weblate.checks.source_engine.MatchingBinds",
+        "weblate.checks.source_engine.MatchingRUI",
+        "weblate.checks.source_engine.MatchingR2FontStyle",
     )
 
     class Meta:

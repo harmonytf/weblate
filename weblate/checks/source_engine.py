@@ -7,7 +7,9 @@ from weblate.checks.base import TargetCheck
 SOURCE_ENGINE_COLOR_REGEX = re.compile(r'\^(?P<color>[0-9A-F]{8})')
 SOURCE_ENGINE_PARAM_REGEX = re.compile(r'(?P<param>%s[0-9]{1})')
 SOURCE_ENGINE_BUTTON_REGEX = re.compile(r'(?P<btn>%\[[A-Z_\|]+\]%)')
-SOURCE_ENGINE_BIND_REGEX = re.compile(r'(?P<bind>%[A-Za-z0-9_+\-]+%)')
+SOURCE_ENGINE_BIND_REGEX = re.compile(r'(?P<bind>%(?!s[0-9])[A-Za-z0-9_+\-]+%)')
+SOURCE_ENGINE_RUI_REGEX = re.compile(r'(?P<rui>%\$(?:rui|vgui)[A-Za-z0-9_/\\]+%)')
+SOURCE_ENGINE_R2_FONT_STYLE_REGEX = re.compile(r'(?P<fontstyle>`[0-9]{1})')
 
 class BaseStatsCheck(TargetCheck):
     stats_check_regex = "INVALID"
@@ -86,3 +88,25 @@ class MatchingBinds(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_BIND_REGEX
     stats_check_group_name = "bind"
     stats_check_case_insensitive = True
+
+class MatchingRUI(BaseStatsCheck):
+    """Check Titanfall 2 RUI embed codes like %$rui/hud/titan_core%."""
+
+    check_id = "source_engine_matching_r2_rui"
+    name = _("Matching RUI embeds (Titanfall 2)")
+    description = _("Source and translation have a mismatch of Titanfall 2 RUI codes used among them")
+
+    stats_check_regex = SOURCE_ENGINE_RUI_REGEX
+    stats_check_group_name = "rui"
+    stats_check_case_insensitive = False
+
+class MatchingR2FontStyle(BaseStatsCheck):
+    """Check Source Engine Titanfall 2 font styles like `1, `2, `3."""
+
+    check_id = "source_engine_matching_r2_font_style"
+    name = _("Matching font styles (Titanfall 2)")
+    description = _("Source and translation have a mismatch of Titanfall 2 font style codes used among them")
+
+    stats_check_regex = SOURCE_ENGINE_R2_FONT_STYLE_REGEX
+    stats_check_group_name = "fontstyle"
+    stats_check_case_insensitive = False
