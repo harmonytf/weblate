@@ -122,6 +122,10 @@ following templates in the documents:
 :file:`legal/documents/summary.html`
    Short overview of the terms of service and privacy policy
 
+On changing the terms of service documents, please adjust
+:setting:`LEGAL_TOS_DATE` so that users are forced to agree with the updated
+documents.
+
 .. note::
 
     Legal documents for the Hosted Weblate service are available in this Git repository
@@ -262,7 +266,7 @@ The following operations are subject to rate limiting:
 +===================================+====================+==================+==================+================+
 | Registration                      | ``REGISTRATION``   |                5 |              300 |            600 |
 +-----------------------------------+--------------------+------------------+------------------+----------------+
-| Sending message to admins         | ``MESSAGE``        |                5 |              300 |            600 |
+| Sending message to admins         | ``MESSAGE``        |                2 |              300 |            600 |
 +-----------------------------------+--------------------+------------------+------------------+----------------+
 | Password authentication on sign in| ``LOGIN``          |                5 |              300 |            600 |
 +-----------------------------------+--------------------+------------------+------------------+----------------+

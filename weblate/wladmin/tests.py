@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
 import os
@@ -340,13 +325,13 @@ class AdminTest(ViewTestCase):
 
     def test_groups(self):
         name = "Test group"
-        url = reverse("manage-groups")
+        url = reverse("manage-teams")
         response = self.client.get(url)
         self.assertNotContains(response, name)
 
         # Create
         response = self.client.post(
-            reverse("manage-groups"),
+            reverse("manage-teams"),
             {
                 "name": name,
                 "language_selection": "1",
@@ -358,8 +343,9 @@ class AdminTest(ViewTestCase):
         self.assertContains(response, name)
 
         # Edit
+        group = Group.objects.get(name=name)
         response = self.client.post(
-            reverse("manage-group", kwargs={"pk": Group.objects.get(name=name).pk}),
+            group.get_absolute_url(),
             {
                 "name": name,
                 "language_selection": "1",
@@ -369,14 +355,14 @@ class AdminTest(ViewTestCase):
                 "autogroup_set-0-match": "^.*$",
             },
         )
-        self.assertRedirects(response, url)
+        self.assertRedirects(response, group.get_absolute_url())
         group = Group.objects.get(name=name)
 
         self.assertEqual(group.autogroup_set.count(), 1)
 
         # Delete
         response = self.client.post(
-            reverse("manage-group", kwargs={"pk": group.pk}),
+            group.get_absolute_url(),
             {
                 "delete": 1,
             },
@@ -388,11 +374,11 @@ class AdminTest(ViewTestCase):
 
     def test_edit_internal_group(self):
         response = self.client.post(
-            reverse("manage-group", kwargs={"pk": Group.objects.get(name="Users").pk}),
+            Group.objects.get(name="Users").get_absolute_url(),
             {
                 "name": "Other",
                 "language_selection": "1",
                 "project_selection": "1",
             },
         )
-        self.assertContains(response, "prohibited for built-in groups")
+        self.assertContains(response, "prohibited for built-in teams")

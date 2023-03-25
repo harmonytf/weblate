@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Tests for automatix fixups."""
 
@@ -80,7 +65,7 @@ class AutoFixTest(TestCase):
         )
         self.assertEqual(
             fix.fix_target(["<https://weblate.org>"], unit),
-            (["&lt;https://weblate.org&gt;"], True),
+            ([""], True),
         )
 
     def test_html_markdown(self):
@@ -115,7 +100,7 @@ class AutoFixTest(TestCase):
         unit = MockUnit(source="Foo\x1b")
         fix = RemoveControlChars()
         self.assertEqual(fix.fix_target(["Bar"], unit), (["Bar"], False))
-        self.assertEqual(fix.fix_target(["Bar\x1b"], unit), (["Bar\x1b"], False))
+        self.assertEqual(fix.fix_target(["Bar\x1b"], unit), (["Bar"], True))
         self.assertEqual(fix.fix_target(["Bar\n"], unit), (["Bar\n"], False))
 
     def test_no_controlchars(self):

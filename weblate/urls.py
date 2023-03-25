@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import django.contrib.sitemaps.views
 import django.views.i18n
@@ -30,6 +15,7 @@ import weblate.accounts.urls
 import weblate.accounts.views
 import weblate.addons.views
 import weblate.api.urls
+import weblate.auth.views
 import weblate.checks.views
 import weblate.fonts.views
 import weblate.glossary.views
@@ -411,19 +397,9 @@ real_patterns = [
         name="set-groups",
     ),
     path(
-        "access/<name:project>/team/delete/",
-        weblate.trans.views.acl.delete_group,
-        name="delete-project-group",
-    ),
-    path(
         "access/<name:project>/team/create/",
         weblate.trans.views.acl.create_group,
         name="create-project-group",
-    ),
-    path(
-        "access/<name:project>/team/<int:pk>/",
-        weblate.trans.views.acl.edit_group,
-        name="edit-project-group",
     ),
     path(
         "token/<name:project>/create/",
@@ -756,7 +732,7 @@ real_patterns = [
     path(
         "manage/machinery/",
         management_access(weblate.machinery.views.ListMachineryGlobalView.as_view()),
-        name="machinery-list",
+        name="manage-machinery",
     ),
     path(
         "manage/machinery/<name:machinery>/",
@@ -1002,14 +978,14 @@ real_patterns = [
         name="manage-users",
     ),
     path(
-        "manage/groups/",
-        weblate.wladmin.views.GroupListView.as_view(),
-        name="manage-groups",
+        "manage/teams/",
+        weblate.wladmin.views.TeamListView.as_view(),
+        name="manage-teams",
     ),
     path(
-        "manage/groups/<int:pk>/",
-        weblate.wladmin.views.GroupUpdateView.as_view(),
-        name="manage-group",
+        "teams/<int:pk>/",
+        weblate.auth.views.TeamUpdateView.as_view(),
+        name="team",
     ),
     path(
         "manage/users/check/",
@@ -1046,6 +1022,11 @@ real_patterns = [
     path("user/", weblate.accounts.views.UserList.as_view(), name="user_list"),
     path(
         "user/<name:user>/", weblate.accounts.views.UserPage.as_view(), name="user_page"
+    ),
+    path(
+        "user/<name:user>/contributions/",
+        weblate.accounts.views.user_contributions,
+        name="user_contributions",
     ),
     path(
         "user/<name:user>/suggestions/",

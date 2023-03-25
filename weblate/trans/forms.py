@@ -1,28 +1,13 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import copy
 import json
 import re
 from datetime import date, datetime, timedelta
 from secrets import token_hex
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from crispy_forms.bootstrap import InlineCheckboxes, InlineRadios, Tab, TabHolder
 from crispy_forms.helper import FormHelper
@@ -56,7 +41,12 @@ from weblate.lang.data import BASIC_LANGUAGES
 from weblate.lang.models import Language
 from weblate.machinery.models import MACHINERY
 from weblate.trans.backups import ProjectBackup
-from weblate.trans.defines import COMPONENT_NAME_LENGTH, FILENAME_LENGTH, REPO_LENGTH
+from weblate.trans.defines import (
+    BRANCH_LENGTH,
+    COMPONENT_NAME_LENGTH,
+    FILENAME_LENGTH,
+    REPO_LENGTH,
+)
 from weblate.trans.filter import FILTERS, get_filter_choice
 from weblate.trans.models import Announcement, Change, Component, Label, Project, Unit
 from weblate.trans.specialchars import RTL_CHARS_DATA, get_special_chars
@@ -67,6 +57,7 @@ from weblate.utils.forms import (
     ColorWidget,
     ContextDiv,
     EmailField,
+    FilterForm,
     SearchField,
     SortedSelect,
     SortedSelectMultiple,
@@ -157,6 +148,8 @@ class ChecksumField(forms.CharField):
 class UserField(forms.CharField):
     def clean(self, value):
         if not value:
+            if self.required:
+                raise ValidationError(_("Missing username or e-mail."))
             return None
         try:
             return User.objects.get(Q(username=value) | Q(email=value))
@@ -181,9 +174,11 @@ class QueryField(forms.CharField):
             return ""
         try:
             parse_query(value)
-            return value
         except Exception as error:
-            raise ValidationError(_("Could not parse query string: {}").format(error))
+            raise ValidationError(
+                _("Could not parse query string: {}").format(error)
+            ) from error
+        return value
 
 
 class FlagField(forms.CharField):
@@ -294,7 +289,7 @@ class PluralTextarea(forms.Textarea):
         if language.direction == "rtl":
             result = format_html("{}{}", self.get_rtl_toolbar(fieldname), result)
 
-        return result
+        return result  # noqa: RET504
 
     def render(self, name, value, attrs=None, renderer=None, **kwargs):
         """Render all textareas with correct plural labels."""
@@ -304,7 +299,11 @@ class PluralTextarea(forms.Textarea):
         lang = translation.language
         plural = translation.plural
         tabindex = self.attrs["tabindex"]
-        placeables = [hl[2] for hl in highlight_string(unit.source_string, unit)]
+        plurals = unit.get_source_plurals()
+        placeables = set()
+        for text in plurals:
+            placeables.update(hl[2] for hl in highlight_string(text, unit))
+        placeables = list(placeables)
         show_plural_labels = len(values) > 1 and not translation.component.is_multivalue
 
         # Need to add extra class
@@ -321,7 +320,6 @@ class PluralTextarea(forms.Textarea):
 
         # Okay we have more strings
         ret = []
-        plurals = unit.get_source_plurals()
         base_id = f"id_{unit.checksum}"
         for idx, val in enumerate(values):
             # Generate ID
@@ -329,10 +327,7 @@ class PluralTextarea(forms.Textarea):
             fieldid = f"{base_id}_{idx}"
             attrs["id"] = fieldid
             attrs["tabindex"] = tabindex + idx
-            if idx and len(plurals) > 1:
-                source = plurals[1]
-            else:
-                source = plurals[0]
+            source = plurals[1] if idx and len(plurals) > 1 else plurals[0]
 
             # Render textare
             textarea = super().render(fieldname, val, attrs, renderer, **kwargs)
@@ -388,7 +383,7 @@ class PluralField(forms.CharField):
     enforce the value to be a string.
     """
 
-    def __init__(self, max_length=None, min_length=None, **kwargs):
+    def __init__(self, **kwargs):
         kwargs["label"] = ""
         super().__init__(widget=PluralTextarea, **kwargs)
 
@@ -399,7 +394,7 @@ class PluralField(forms.CharField):
     def clean(self, value):
         value = super().clean(value)
         if not value or (self.required and not any(value)):
-            raise ValidationError(_("Missing translated string!"))
+            raise ValidationError(self.error_messages["required"], code="required")
         return value
 
 
@@ -705,7 +700,7 @@ def get_upload_form(user, translation, *args, **kwargs):
         if not check_upload_method_permissions(user, translation, method):
             result.remove_translation_choice(method)
     # Remove approved choice for non review projects
-    if not user.has_perm("unit.review", translation) and not form == SimpleUploadForm:
+    if not user.has_perm("unit.review", translation) and form != SimpleUploadForm:
         result.fields["conflicts"].choices = [
             choice
             for choice in result.fields["conflicts"].choices
@@ -800,13 +795,13 @@ class SearchForm(forms.Form):
         return items
 
     def urlencode(self):
-        return urlencode(sorted(self.items()))
+        return urlencode(self.items())
 
     def reset_offset(self):
         """
         Resets form offset.
 
-        Thsi is needed to avoid issues when using the form as the default for
+        This is needed to avoid issues when using the form as the default for
         any new search.
         """
         data = copy.copy(self.data)
@@ -930,7 +925,7 @@ class AutoForm(forms.Form):
             # Do not show choices when too many
             self.fields["component"] = forms.CharField(
                 required=False,
-                label=_("Components"),
+                label=_("Component"),
                 help_text=_(
                     "Enter slug of a component to use as source, "
                     "keep blank to use all components in the current project."
@@ -943,8 +938,9 @@ class AutoForm(forms.Form):
             ]
 
             self.fields["component"].choices = [
-                ("", _("All components in current project"))
-            ] + choices
+                ("", _("All components in current project")),
+                *choices,
+            ]
 
         machinery_settings = obj.project.get_machinery_settings()
 
@@ -1097,9 +1093,10 @@ class NewLanguageForm(NewLanguageOwnerForm):
 
     def __init__(self, component, *args, **kwargs):
         super().__init__(component, *args, **kwargs)
-        self.fields["lang"].choices = [("", _("Please choose"))] + self.fields[
-            "lang"
-        ].choices
+        self.fields["lang"].choices = [
+            ("", _("Please choose")),
+            *self.fields["lang"].choices,
+        ]
 
     def clean_lang(self):
         # Compatibility with NewLanguageOwnerForm
@@ -1109,7 +1106,7 @@ class NewLanguageForm(NewLanguageOwnerForm):
 def get_new_language_form(request, component):
     """Return new language form for user."""
     if not request.user.has_perm("translation.add", component):
-        raise PermissionDenied()
+        raise PermissionDenied
     if request.user.has_perm("translation.add_more", component):
         return NewLanguageOwnerForm
     return NewLanguageForm
@@ -1166,9 +1163,18 @@ class ContextForm(forms.ModelForm):
 class UserManageForm(forms.Form):
     user = UserField(
         label=_("User to add"),
+        required=True,
         help_text=_(
             "Please type in an existing Weblate account name or e-mail address."
         ),
+    )
+
+
+class UserAddTeamForm(UserManageForm):
+    make_admin = forms.BooleanField(
+        required=False,
+        initial=False,
+        label=_("Allow user to add or remove users from a team."),
     )
 
 
@@ -1219,14 +1225,18 @@ class ReportsForm(forms.Form):
     end_date = WeblateDateField(
         label=_("Ending date"), required=False, datepicker=False
     )
+    language = forms.ChoiceField(
+        label=_("Language"), choices=[("", _("All languages"))], required=False
+    )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, scope, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Field("style"),
             Field("period"),
+            Field("language"),
             Div(
                 "start_date",
                 "end_date",
@@ -1235,6 +1245,17 @@ class ReportsForm(forms.Form):
                 data_date_format="yyyy-mm-dd",
             ),
         )
+        if not scope:
+            languages = Language.objects.have_translation()
+        elif "project" in scope:
+            languages = Language.objects.filter(
+                translation__component__project=scope["project"]
+            )
+        elif "component" in scope:
+            languages = Language.objects.filter(
+                translation__component=scope["component"]
+            ).exclude(pk=scope["component"].source_language_id)
+        self.fields["language"].choices += languages.as_choices()
 
     def clean(self):
         super().clean()
@@ -1430,6 +1451,7 @@ class ComponentSettingsForm(
         widgets = {
             "enforced_checks": SelectChecksWidget,
             "source_language": SortedSelect,
+            "language_code_style": SortedSelect,
         }
         field_classes = {"enforced_checks": SelectChecksField}
 
@@ -1604,7 +1626,10 @@ class ComponentCreateForm(SettingsBaseForm, ComponentDocsMixin, ComponentAntispa
             "source_language",
             "is_glossary",
         ]
-        widgets = {"source_language": SortedSelect}
+        widgets = {
+            "source_language": SortedSelect,
+            "language_code_style": SortedSelect,
+        }
 
 
 class ComponentNameForm(forms.Form, ComponentDocsMixin, ComponentAntispamMixin):
@@ -1768,7 +1793,8 @@ class ComponentDocCreateForm(ComponentProjectForm):
 
 
 class ComponentInitCreateForm(CleanRepoMixin, ComponentProjectForm):
-    """Component creation form.
+    """
+    Component creation form.
 
     This is mostly copied from the Component model. Probably should be extracted to a
     standalone Repository model…
@@ -1790,7 +1816,7 @@ class ComponentInitCreateForm(CleanRepoMixin, ComponentProjectForm):
     )
     branch = forms.CharField(
         label=Component.branch.field.verbose_name,
-        max_length=REPO_LENGTH,
+        max_length=BRANCH_LENGTH,
         help_text=Component.branch.field.help_text,
         required=False,
     )
@@ -2202,8 +2228,11 @@ class NewUnitBaseForm(forms.Form):
         required=False,
     )
 
-    def __init__(self, translation, user, *args, **kwargs):
+    def __init__(
+        self, translation, user, tabindex: Optional[int] = None, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
+        self.tabindex = tabindex or 200
         self.translation = translation
         self.fields["variant"].queryset = translation.unit_set.all()
         self.user = user
@@ -2253,10 +2282,12 @@ class NewMonolingualUnitForm(NewUnitBaseForm):
         required=True,
     )
 
-    def __init__(self, translation, user, *args, **kwargs):
-        super().__init__(translation, user, *args, **kwargs)
-        self.fields["context"].widget.attrs["tabindex"] = 99
-        self.fields["source"].widget.attrs["tabindex"] = 100
+    def __init__(
+        self, translation, user, tabindex: Optional[int] = None, *args, **kwargs
+    ):
+        super().__init__(translation, user, tabindex, *args, **kwargs)
+        self.fields["context"].widget.attrs["tabindex"] = self.tabindex
+        self.fields["source"].widget.attrs["tabindex"] = self.tabindex + 1
         self.fields["source"].widget.profile = user.profile
         self.fields["source"].initial = Unit(translation=translation, id_hash=0)
 
@@ -2277,11 +2308,13 @@ class NewBilingualSourceUnitForm(NewUnitBaseForm):
         required=True,
     )
 
-    def __init__(self, translation, user, *args, **kwargs):
-        super().__init__(translation, user, *args, **kwargs)
-        self.fields["context"].widget.attrs["tabindex"] = 99
+    def __init__(
+        self, translation, user, tabindex: Optional[int] = None, *args, **kwargs
+    ):
+        super().__init__(translation, user, tabindex, *args, **kwargs)
+        self.fields["context"].widget.attrs["tabindex"] = self.tabindex
         self.fields["context"].label = translation.component.context_label
-        self.fields["source"].widget.attrs["tabindex"] = 100
+        self.fields["source"].widget.attrs["tabindex"] = self.tabindex + 1
         self.fields["source"].widget.profile = user.profile
         self.fields["source"].initial = Unit(
             translation=translation.component.source_translation, id_hash=0
@@ -2297,19 +2330,23 @@ class NewBilingualUnitForm(NewBilingualSourceUnitForm):
         required=True,
     )
 
-    def __init__(self, translation, user, *args, **kwargs):
-        super().__init__(translation, user, *args, **kwargs)
-        self.fields["target"].widget.attrs["tabindex"] = 101
+    def __init__(
+        self, translation, user, tabindex: Optional[int] = None, *args, **kwargs
+    ):
+        super().__init__(translation, user, tabindex, *args, **kwargs)
+        self.fields["target"].widget.attrs["tabindex"] = self.tabindex + 2
         self.fields["target"].widget.profile = user.profile
         self.fields["target"].initial = Unit(translation=translation, id_hash=0)
 
 
 class NewBilingualGlossarySourceUnitForm(GlossaryAddMixin, NewBilingualSourceUnitForm):
-    def __init__(self, translation, user, *args, **kwargs):
+    def __init__(
+        self, translation, user, tabindex: Optional[int] = None, *args, **kwargs
+    ):
         if kwargs["initial"] is None:
             kwargs["initial"] = {}
         kwargs["initial"]["terminology"] = True
-        super().__init__(translation, user, *args, **kwargs)
+        super().__init__(translation, user, tabindex, *args, **kwargs)
 
 
 class NewBilingualGlossaryUnitForm(GlossaryAddMixin, NewBilingualUnitForm):
@@ -2368,7 +2405,7 @@ class CachedModelMultipleChoiceField(forms.ModelMultipleChoiceField):
 class BulkEditForm(forms.Form):
     q = QueryField(required=True)
     state = forms.ChoiceField(
-        label=_("State to set"), choices=((-1, _("Do not change")),) + STATE_CHOICES
+        label=_("State to set"), choices=[(-1, _("Do not change"))]
     )
     add_flags = FlagField(label=_("Translation flags to add"), required=False)
     remove_flags = FlagField(label=_("Translation flags to remove"), required=False)
@@ -2395,13 +2432,21 @@ class BulkEditForm(forms.Form):
             self.fields["add_labels"].queryset = labels
 
         excluded = {STATE_EMPTY, STATE_READONLY}
+        show_review = True
         if user is not None and not user.has_perm("unit.review", obj):
+            show_review = False
             excluded.add(STATE_APPROVED)
 
         # Filter offered states
-        self.fields["state"].choices = [
-            x for x in self.fields["state"].choices if x[0] not in excluded
-        ]
+        choices = self.fields["state"].choices
+        for value, label in STATE_CHOICES:
+            if value in excluded:
+                continue
+            if value == STATE_TRANSLATED and show_review:
+                label = gettext("Waiting for review")
+
+            choices.append((value, label))
+        self.fields["state"].choices = choices
 
         self.helper = FormHelper(self)
         self.helper.form_tag = False
@@ -2436,11 +2481,14 @@ class BaseDeleteForm(forms.Form):
             ContextDiv(
                 template=self.warning_template,
                 css_class="form-group",
-                context={"object": obj},
+                context=self.get_template_context(obj),
             ),
             Field("confirm"),
         )
         self.helper.form_tag = False
+
+    def get_template_context(self, obj):
+        return {"object": obj}
 
     def clean(self):
         if self.cleaned_data.get("confirm") != self.obj.full_slug:
@@ -2456,6 +2504,14 @@ class TranslationDeleteForm(BaseDeleteForm):
         required=True,
     )
     warning_template = "trans/delete-translation.html"
+
+    def get_template_context(self, obj):
+        context = super().get_template_context(obj)
+        context["languages_addon"] = any(
+            addon.name == "weblate.consistency.languages"
+            for addon in obj.component.addons_cache["__all__"]
+        )
+        return context
 
 
 class ComponentDeleteForm(BaseDeleteForm):
@@ -2495,6 +2551,20 @@ class AnnouncementForm(forms.ModelForm):
             "expiry": WeblateDateInput(),
             "message": MarkdownTextarea,
         }
+
+
+class ChangesFilterForm(FilterForm):
+    string = forms.ModelChoiceField(
+        Unit.objects.none(),
+        widget=forms.HiddenInput,
+        required=False,
+    )
+
+    def __init__(self, request, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["string"].queryset = Unit.objects.filter(
+            translation__component__project__in=request.user.allowed_projects
+        )
 
 
 class ChangesForm(forms.Form):
@@ -2593,3 +2663,8 @@ class ProjectUserGroupForm(UserManageForm):
         super().__init__(*args, **kwargs)
         self.fields["user"].widget = forms.HiddenInput()
         self.fields["groups"].queryset = project.defined_groups.all()
+
+
+class ProjectFilterForm(forms.Form):
+    owned = UserField(required=False)
+    watched = UserField(required=False)

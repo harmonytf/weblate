@@ -154,6 +154,13 @@ Gettext compatible plural formula used to determine which plural form is used fo
 
 .. _Language Plural Rules by the Unicode Consortium: https://unicode-org.github.io/cldr-staging/charts/37/supplemental/language_plural_rules.html
 
+.. _language-population:
+
+Number of speakers
+++++++++++++++++++
+
+Number of worldwide speakers of this language.
+
 .. _new-translations:
 
 Adding new translations
@@ -204,9 +211,10 @@ BCP style using hyphen as a separator, legacy language codes
    Uses legacy codes for Chinese and BCP style notation.
 BCP style using hyphen as a separator, lower cased
    BCP style notation, all in lower case (for example ``cs-cz``).
-App store metadata style
-   Style suitable for uploading metadata to appstores. This should be suitable
-   for both Apple App Store and Google Play Store.
+Apple App Store metadata style
+   Style suitable for uploading metadata to Apple App Store.
+Google Play metadata style
+   Style suitable for uploading metadata to Google Play Store.
 Android style
    Only used in Android apps, produces language codes like
    ``pt-rBR``.
@@ -224,4 +232,5 @@ applied in reverse.
 .. seealso::
 
     :ref:`language-code`,
+    :ref:`project-language_aliases`,
     :ref:`language-parsing-codes`

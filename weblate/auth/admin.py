@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from django import forms
 from django.contrib import admin
@@ -142,7 +127,8 @@ class WeblateAuthAdmin(WeblateModelAdmin):
 
 
 class WeblateUserAdmin(WeblateAuthAdmin, UserAdmin):
-    """Custom UserAdmin class.
+    """
+    Custom UserAdmin class.
 
     Used to add listing of group membership and whether a user is active.
     """
@@ -180,14 +166,13 @@ class WeblateUserAdmin(WeblateAuthAdmin, UserAdmin):
         """Display comma separated list of user groups."""
         return ",".join(obj.groups.values_list("name", flat=True))
 
+    @admin.display(
+        description=format_html('<input type="checkbox" id="action-toggle" />')
+    )
     def action_checkbox(self, obj):
         if obj.is_anonymous:
             return ""
         return super().action_checkbox(obj)
-
-    action_checkbox.short_description = format_html(
-        '<input type="checkbox" id="action-toggle" />'
-    )
 
     def has_delete_permission(self, request, obj=None):
         if obj and obj.is_anonymous:
@@ -258,14 +243,13 @@ class WeblateGroupAdmin(WeblateAuthAdmin):
 
     new_obj = None
 
+    @admin.display(
+        description=format_html('<input type="checkbox" id="action-toggle" />')
+    )
     def action_checkbox(self, obj):
         if obj.internal:
             return ""
         return super().action_checkbox(obj)
-
-    action_checkbox.short_description = format_html(
-        '<input type="checkbox" id="action-toggle" />'
-    )
 
     def has_delete_permission(self, request, obj=None):
         if obj and obj.internal:
@@ -278,7 +262,8 @@ class WeblateGroupAdmin(WeblateAuthAdmin):
         return super().has_change_permission(request, obj)
 
     def save_model(self, request, obj, form, change):
-        """Fix saving of automatic language/project selection, part 1.
+        """
+        Fix saving of automatic language/project selection, part 1.
 
         Stores saved object as an attribute to be used by save_related.
         """
@@ -286,7 +271,8 @@ class WeblateGroupAdmin(WeblateAuthAdmin):
         self.new_obj = obj
 
     def save_related(self, request, form, formsets, change):
-        """Fix saving of automatic language/project selection, part 2.
+        """
+        Fix saving of automatic language/project selection, part 2.
 
         Uses stored attribute to save the model again. Saving triggers the automation
         and adjusts project/language selection according to the chosen value.

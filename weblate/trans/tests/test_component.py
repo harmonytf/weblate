@@ -1,21 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Test for translation models."""
 import os
 
@@ -585,6 +571,69 @@ class ComponentChangeTest(RepoTestCase):
         component = self.create_link()
         component.repo = component.linked_component.repo
         component.save()
+
+    def test_repo_link_generation_bitbucket(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "ssh://git@bitbucket.org/marcus/project-x.git"
+        result = component.get_bitbucket_git_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://bitbucket.org/marcus/project-x/blob/{branch}/{filename}#{line}",  # noqa
+        )
+        component.repo = "git@bitbucket.org:marcus/project-x.git"
+        result = component.get_bitbucket_git_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://bitbucket.org/marcus/project-x/blob/{branch}/{filename}#{line}",  # noqa
+        )
+
+    def test_repo_link_generation_github(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "git://github.com/marcus/project-x.git"
+        result = component.get_github_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://github.com/marcus/project-x/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "git@github.com:marcus/project-x.git"
+        result = component.get_github_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://github.com/marcus/project-x/blob/{branch}/{filename}#L{line}",
+        )
+
+    def test_repo_link_generation_pagure(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "https://pagure.io/f/ATEST"
+        result = component.get_pagure_repoweb_template()
+        self.assertEqual(
+            result, "https://pagure.io/f/ATEST/blob/{branch}/f/{filename}/#_{line}"
+        )
+
+    def test_repo_link_generation_azure(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "f@vs-ssh.visualstudio.com:v3/f/c/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "git@ssh.dev.azure.com:v3/f/c/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "https://f.visualstudio.com/c/_git/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
 
     def test_change_project(self):
         component = self.create_component()

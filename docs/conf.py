@@ -38,11 +38,11 @@ def setup(app):
 # -- Project information -----------------------------------------------------
 
 project = "Weblate"
-copyright = "2012–2022 Michal Čihař"
+copyright = "Michal Čihař"
 author = "Michal Čihař"
 
 # The full version, including alpha/beta/rc tags
-release = "4.14.1"
+release = "4.17"
 
 
 # -- General configuration ---------------------------------------------------
@@ -262,6 +262,8 @@ linkcheck_ignore = [
     "http://127.0.0.1:8080/",
     # Requires a valid token
     "https://api.deepl.com/v2/translate",
+    # Requires authentication
+    "https://gitlab.com/profile/applications",
     # Anchors are used to specify channel name here
     "https://web.libera.chat/#",
     # Site is unreliable

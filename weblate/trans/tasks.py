@@ -1,21 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 import os
 import time
 from datetime import date, datetime, timedelta
@@ -293,7 +279,9 @@ def repository_alerts(threshold=settings.REPOSITORY_ALERT_THRESHOLD):
             else:
                 component.delete_alert("RepositoryChanges")
         except RepositoryException as error:
-            report_error(cause="Could not check repository status")
+            report_error(
+                cause="Could not check repository status", project=component.project
+            )
             component.add_alert("MergeFailure", error=component.error_text(error))
 
 
@@ -354,16 +342,18 @@ def component_removal(pk, uid):
 
 
 @app.task(trail=False)
-def project_removal(pk, uid):
-    user = User.objects.get(pk=uid)
+def project_removal(pk: int, uid: Optional[int]):
+    user = get_anonymous() if uid is None else User.objects.get(pk=uid)
     try:
         project = Project.objects.get(pk=pk)
+        create_project_backup(pk)
         Change.objects.create(
             action=Change.ACTION_REMOVE_PROJECT,
             target=project.slug,
             user=user,
             author=user,
         )
+        project.stats.invalidate()
         project.delete()
     except Project.DoesNotExist:
         return
@@ -389,10 +379,7 @@ def auto_translate(
 ):
     if translation is None:
         translation = Translation.objects.get(pk=translation_id)
-    if user_id:
-        user = User.objects.get(pk=user_id)
-    else:
-        user = None
+    user = User.objects.get(pk=user_id) if user_id else None
     translation.log_info(
         "starting automatic translation %s: %s: %s",
         current_task.request.id,
@@ -541,7 +528,7 @@ def cleanup_project_backups():
                     datetime.fromtimestamp(int(path.split(".")[0])),
                 )
                 for path in os.listdir(projectdir)
-                if path.endswith(".zip") or path.endswith(".zip.part")
+                if path.endswith((".zip", ".zip.part"))
             ),
             key=lambda item: item[1],
             reverse=True,
@@ -567,24 +554,32 @@ def create_project_backup(pk):
 def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(3600, commit_pending.s(), name="commit-pending")
     sender.add_periodic_task(
-        crontab(hour=3, minute=30), update_remotes.s(), name="update-remotes"
+        crontab(hour=3, minute=5), update_remotes.s(), name="update-remotes"
     )
     sender.add_periodic_task(
-        crontab(hour=0, minute=30), daily_update_checks.s(), name="daily-update-checks"
-    )
-    sender.add_periodic_task(3600 * 24, repository_alerts.s(), name="repository-alerts")
-    sender.add_periodic_task(3600 * 24, component_alerts.s(), name="component-alerts")
-    sender.add_periodic_task(
-        3600 * 24, cleanup_suggestions.s(), name="suggestions-cleanup"
+        crontab(hour=3, minute=30), daily_update_checks.s(), name="daily-update-checks"
     )
     sender.add_periodic_task(
-        3600 * 24, cleanup_stale_repos.s(), name="cleanup-stale-repos"
+        crontab(hour=3, minute=45), repository_alerts.s(), name="repository-alerts"
     )
     sender.add_periodic_task(
-        3600 * 24, cleanup_old_suggestions.s(), name="cleanup-old-suggestions"
+        crontab(hour=3, minute=55), component_alerts.s(), name="component-alerts"
     )
     sender.add_periodic_task(
-        3600 * 24, cleanup_old_comments.s(), name="cleanup-old-comments"
+        crontab(hour=0, minute=40), cleanup_suggestions.s(), name="suggestions-cleanup"
+    )
+    sender.add_periodic_task(
+        crontab(hour=0, minute=40), cleanup_stale_repos.s(), name="cleanup-stale-repos"
+    )
+    sender.add_periodic_task(
+        crontab(hour=0, minute=45),
+        cleanup_old_suggestions.s(),
+        name="cleanup-old-suggestions",
+    )
+    sender.add_periodic_task(
+        crontab(hour=0, minute=50),
+        cleanup_old_comments.s(),
+        name="cleanup-old-comments",
     )
     sender.add_periodic_task(
         crontab(hour=2, minute=30),

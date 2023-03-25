@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Test for translation views."""
 
@@ -299,7 +284,7 @@ class TranslationManipulationTest(ViewTestCase):
     def test_model_add_duplicate(self):
         request = self.get_request()
         self.assertFalse(get_messages(request))
-        self.assertTrue(
+        self.assertIsNone(
             self.component.add_new_language(Language.objects.get(code="de"), request)
         )
         self.assertTrue(get_messages(request))
@@ -385,7 +370,7 @@ class BasicViewTest(ViewTestCase):
         self.assertContains(response, other.name)
 
     def test_view_redirect(self):
-        """Test case insentivite lookups and aliases in middleware."""
+        """Test case insensitive lookups and aliases in middleware."""
         # Non existing fails with 404
         kwargs = {"project": "invalid"}
         response = self.client.get(reverse("project", kwargs=kwargs))

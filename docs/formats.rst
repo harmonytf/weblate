@@ -53,83 +53,313 @@ file format (for example automatic addition of new translations).
 Translation types capabilities
 ------------------------------
 
-Capabilities of all supported formats:
+.. list-table:: Capabilities of all supported formats
+   :header-rows: 1
 
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| Format              | Linguality [#m]_ | Plurals [#p]_ | Descriptions [#n]_ | Context [#c]_ | Location [#l]_ | Flags [#f]_    | Additional states [#a]_ |
-+=====================+==================+===============+====================+===============+================+================+=========================+
-| :ref:`gettext`      | bilingual        | yes           | yes                | yes           | yes            | yes [#po]_     | needs editing           |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`mono_gettext` | mono             | yes           | yes                | yes           | yes            | yes [#po]_     | needs editing           |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`xliff`        | both             | yes           | yes                | yes           | yes            | yes [#xl]_     | needs editing, approved |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`javaprop`     | both             | no            | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`mi18n-lang`   | mono             | no            | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`gwt`          | mono             | yes           | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`joomla`       | mono             | no            | yes                | no            | yes            | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`qtling`       | both             | yes           | yes                | no            | yes            | yes [#xl]_     | needs editing           |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`aresource`    | mono             | yes           | yes [#x]_          | no            | no             | yes [#xl]_     |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`apple`        | both             | no            | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`php`          | mono             | no [#lp]_     | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`json`         | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`js-i18next`   | mono             | yes           | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`go-i18n-json` | mono             | yes           | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`arb`          | mono             | yes           | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`webex`        | mono             | yes           | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`dotnet`       | mono             | no            | yes                | no            | no             | yes [#xl]_     |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`resourcedict` | mono             | no            | no                 | no            | no             | yes [#xl]_     |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`csv`          | both             | no            | yes                | yes           | yes            | no             | needs editing           |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`yaml`         | mono             | no            | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`ryaml`        | mono             | yes           | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`dtd`          | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`flatxml`      | mono             | no            | no                 | no            | no             | yes [#xl]_     |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`winrc`        | mono             | no            | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`xlsx`         | mono             | no            | yes                | yes           | yes            | no             | needs editing           |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`appstore`     | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`subtitles`    | mono             | no            | no                 | no            | yes            | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`html`         | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`odf`          | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`idml`         | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`ini`          | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`islu`         | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`tbx`          | bilingual        | no            | yes                | no            | no             | yes [#xl]_     |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`txt`          | mono             | no            | no                 | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`stringsdict`  | mono             | yes           | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
-| :ref:`fluent`       | mono             | no [#fp]_     | yes                | no            | no             | no             |                         |
-+---------------------+------------------+---------------+--------------------+---------------+----------------+----------------+-------------------------+
+   * - Format
+     - Linguality [#m]_
+     - Plurals [#p]_
+     - Descriptions [#n]_
+     - Context [#c]_
+     - Location [#l]_
+     - Flags [#f]_
+     - Additional states [#a]_
+   * - :ref:`gettext`
+     - bilingual
+     - yes
+     - yes
+     - yes
+     - yes
+     - yes [#po]_
+     - needs editing
+   * - :ref:`mono_gettext`
+     - mono
+     - yes
+     - yes
+     - yes
+     - yes
+     - yes [#po]_
+     - needs editing
+   * - :ref:`xliff`
+     - both
+     - yes
+     - yes
+     - yes
+     - yes
+     - yes [#xl]_
+     - needs editing, approved
+   * - :ref:`javaprop`
+     - both
+     - no
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`mi18n-lang`
+     - mono
+     - no
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`gwt`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`joomla`
+     - mono
+     - no
+     - yes
+     - no
+     - yes
+     - no
+     -
+   * - :ref:`qtling`
+     - both
+     - yes
+     - yes
+     - no
+     - yes
+     - yes [#xl]_
+     - needs editing
+   * - :ref:`aresource`
+     - mono
+     - yes
+     - yes [#x]_
+     - no
+     - no
+     - yes [#xl]_
+     -
+   * - :ref:`apple`
+     - both
+     - no
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`php`
+     - mono
+     - no [#lp]_
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`json`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`js-i18next`
+     - mono
+     - yes
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`go-i18n-json`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`gotext-json`
+     - mono
+     - yes
+     - yes
+     - no
+     - yes
+     - no
+     -
+   * - :ref:`arb`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`webex`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`dotnet`
+     - mono
+     - no
+     - yes
+     - no
+     - no
+     - yes [#xl]_
+     -
+   * - :ref:`resourcedict`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - yes [#xl]_
+     -
+   * - :ref:`csv`
+     - both
+     - no
+     - yes
+     - yes
+     - yes
+     - no
+     - needs editing
+   * - :ref:`yaml`
+     - mono
+     - no
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`ryaml`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`dtd`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`flatxml`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - yes [#xl]_
+     -
+   * - :ref:`winrc`
+     - mono
+     - no
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`xlsx`
+     - mono
+     - no
+     - yes
+     - yes
+     - yes
+     - no
+     - needs editing
+   * - :ref:`appstore`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`subtitles`
+     - mono
+     - no
+     - no
+     - no
+     - yes
+     - no
+     -
+   * - :ref:`html`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`odf`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`idml`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`ini`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`islu`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`tbx`
+     - bilingual
+     - no
+     - yes
+     - no
+     - no
+     - yes [#xl]_
+     -
+   * - :ref:`txt`
+     - mono
+     - no
+     - no
+     - no
+     - no
+     - no
+     -
+   * - :ref:`stringsdict`
+     - mono
+     - yes
+     - yes
+     - no
+     - no
+     - no
+     -
+   * - :ref:`fluent`
+     - mono
+     - no [#fp]_
+     - yes
+     - no
+     - no
+     - no
+     -
 
 .. [#m] See :ref:`bimono`
 .. [#p] Plurals are necessary to properly localize strings with variable count.
@@ -745,6 +975,14 @@ stored in a different location from the other files -- :file:`res/values/strings
 
     This script may help pre-process your existing strings.xml files and translations: https://gist.github.com/paour/11291062
 
+.. hint::
+
+   To avoid translating some strings, these can be marked as non-translatable. This can be especially useful for string references:
+
+   .. code-block:: xml
+
+      <string name="foobar" translatable="false">@string/foo</string>
+
 .. _apple:
 
 Apple iOS strings
@@ -856,6 +1094,7 @@ Weblate currently supports several variants of JSON translations:
 * Files with nested keys.
 * :ref:`js-i18next`
 * :ref:`go-i18n-json`
+* :ref:`gotext-json`
 * :ref:`webex`
 * :ref:`arb`
 
@@ -922,6 +1161,16 @@ JSON i18next files
     Since Weblate 2.17 and with `translate-toolkit`_ at-least 2.2.5, i18next
     JSON files with plurals are supported as well.
 
+.. versionchanged:: 4.15.1
+
+    Support for v4 variant of this format was added.
+
+.. hint::
+
+    In case you use plurals, it is recommended to use v4 as that aligned plural
+    handling with CLDR. Older versions have different plural rules for some
+    languages which are not correct.
+
 `i18next <https://www.i18next.com/>`_ is an internationalization framework
 written in and for JavaScript. Weblate supports its localization files with
 features such as plurals.
@@ -931,10 +1180,11 @@ with (what is most often the) English strings.
 
 .. note::
 
-   Weblate supports the i18next JSON v3 format. The v2 and v1 variants are mostly
-   compatible, with exception of how plurals are handled.
+   Weblate supports the i18next JSON v3 and v4 variants. Please choose correct file format
+   matching your environment.
 
-   The v4 variant uses different approach for storing plurals and is currently not supported.
+   The v2 and v1 variants are mostly compatible with v3, with exception of how
+   plurals are handled.
 
 Example file:
 
@@ -950,7 +1200,7 @@ Example file:
 +--------------------------------+----------------------------------+
 | Template for new translations  | `Empty`                          |
 +--------------------------------+----------------------------------+
-| File format                    | `i18next JSON file`              |
+| File format                    | `i18next JSON file v3`           |
 +--------------------------------+----------------------------------+
 
 .. seealso::
@@ -971,16 +1221,21 @@ go-i18n JSON files
 
 .. versionadded:: 4.1
 
+.. versionchanged:: 4.16
+
+    Support for v2 variant of this format was added.
+
 go-i18n translations are monolingual, so it is recommended to specify a base file
 with (what is most often the) English strings.
 
+
 .. note::
 
-   Weblate supports the go-i18n JSON v1 format, for flat JSON formats please
-   use :ref:`json`. The v2 format with hash is currently not supported.
+   Weblate supports the go-i18n JSON v1 and v2 variants. Please choose correct file format
+   matching your environment.
 
 +-------------------------------------------------------------------+
-| Typical Weblate :ref:`component`                                  |
+| Typical Weblate :ref:`component` for v1                           |
 +================================+==================================+
 | File mask                      | ``langs/*.json``                 |
 +--------------------------------+----------------------------------+
@@ -988,13 +1243,59 @@ with (what is most often the) English strings.
 +--------------------------------+----------------------------------+
 | Template for new translations  | `Empty`                          |
 +--------------------------------+----------------------------------+
-| File format                    | `go-i18n JSON file`              |
+| File format                    | `go-i18n v1 JSON file`           |
++--------------------------------+----------------------------------+
+
+
++-------------------------------------------------------------------+
+| Typical Weblate :ref:`component` for v2                           |
++================================+==================================+
+| File mask                      | ``langs/*.json``                 |
++--------------------------------+----------------------------------+
+| Monolingual base language file | ``langs/en.json``                |
++--------------------------------+----------------------------------+
+| Template for new translations  | `Empty`                          |
++--------------------------------+----------------------------------+
+| File format                    | `go-i18n v2 JSON file`           |
 +--------------------------------+----------------------------------+
 
 .. seealso::
 
     :doc:`tt:formats/json`,
     `go-i18n <https://github.com/nicksnyder/go-i18n>`_,
+    :ref:`updating-target-files`,
+    :ref:`addon-weblate.json.customize`,
+    :ref:`addon-weblate.cleanup.generic`,
+
+.. _gotext-json:
+
+gotext JSON files
+-----------------
+
+.. index::
+    pair: gotext; file format
+
+.. versionadded:: 4.15.1
+
+gotext translations are monolingual, so it is recommended to specify a base file
+with (what is most often the) English strings.
+
++--------------------------------+--------------------------------------------------------------+
+| Typical Weblate :ref:`component`                                                              |
++================================+==============================================================+
+| File mask                      | ``internal/translations/locales/*/messages.gotext.json``     |
++--------------------------------+--------------------------------------------------------------+
+| Monolingual base language file | ``internal/translations/locales/en-GB/messages.gotext.json`` |
++--------------------------------+--------------------------------------------------------------+
+| Template for new translations  | `Empty`                                                      |
++--------------------------------+--------------------------------------------------------------+
+| File format                    | `gotext JSON file`                                           |
++--------------------------------+--------------------------------------------------------------+
+
+.. seealso::
+
+    :doc:`tt:formats/json`,
+    `I18n in Go: Managing Translations <https://www.alexedwards.net/blog/i18n-managing-translations>`_,
     :ref:`updating-target-files`,
     :ref:`addon-weblate.json.customize`,
     :ref:`addon-weblate.cleanup.generic`,
@@ -1588,7 +1889,7 @@ XML based format used by Apple which is able to store plural forms of a string.
 .. seealso::
 
    :ref:`apple`,
-   `Stringsdict File Format <https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPInternational/StringsdictFileFormat/StringsdictFileFormat.html>`_
+   `Stringsdict File Format <https://developer.apple.com/documentation/xcode/localizing-strings-that-contain-plurals>`_
 
 
 .. _fluent:

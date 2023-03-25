@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import hashlib
 import os
@@ -35,6 +20,7 @@ from weblate.utils.hash import calculate_checksum
 
 # SSH key files
 KNOWN_HOSTS = "known_hosts"
+CONFIG = "config"
 RSA_KEY = "id_rsa"
 RSA_KEY_PUB = "id_rsa.pub"
 
@@ -107,7 +93,7 @@ def ensure_ssh_key():
     if not ssh_key:
         generate_ssh_key(None)
         ssh_key = get_key_data()
-    return ssh_key
+    return ssh_key  # noqa: RET504
 
 
 def generate_ssh_key(request):
@@ -253,7 +239,7 @@ exec {command} \
     -o StrictHostKeyChecking=yes \
     -o HashKnownHosts=no \
     -o UpdateHostKeys=yes \
-    -F /dev/null \
+    -F {config_file} \
     {extra_args} \
     "$@"
 """
@@ -272,7 +258,8 @@ class SSHWrapper:
 
     @property
     def path(self):
-        """Calculates unique wrapper path.
+        """
+        Calculates unique wrapper path.
 
         It is based on template and DATA_DIR settings.
         """
@@ -282,6 +269,7 @@ class SSHWrapper:
         return SSH_WRAPPER_TEMPLATE.format(
             command=command,
             known_hosts=ssh_file(KNOWN_HOSTS),
+            config_file=ssh_file(CONFIG),
             identity=ssh_file(RSA_KEY),
             extra_args=settings.SSH_EXTRA_ARGS,
         )
@@ -295,6 +283,15 @@ class SSHWrapper:
         """Create wrapper for SSH to pass custom known hosts and key."""
         if not os.path.exists(self.path):
             os.makedirs(self.path)
+
+        if not os.path.exists(ssh_file(CONFIG)):
+            try:
+                with open(ssh_file(CONFIG), "x") as handle:
+                    handle.write(
+                        "# SSH configuration for customising SSH client in Weblate"
+                    )
+            except OSError:
+                pass
 
         for command in ("ssh", "scp"):
             filename = os.path.join(self.path, command)

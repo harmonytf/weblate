@@ -1,22 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from django.conf import settings
 from django.db import models
@@ -88,3 +72,25 @@ class Comment(models.Model, UserDisplayMixin):
         report_spam(
             self.userdetails["address"], self.userdetails["agent"], self.comment
         )
+
+    def resolve(self, user):
+        Change.objects.create(
+            unit=self.unit,
+            comment=self,
+            action=Change.ACTION_COMMENT_RESOLVE,
+            user=user,
+            author=self.user,
+            details={"comment": self.comment},
+        )
+        self.resolved = True
+        self.save(update_fields=["resolved"])
+
+    def delete(self, user=None, using=None, keep_parents=False):
+        Change.objects.create(
+            unit=self.unit,
+            action=Change.ACTION_COMMENT_DELETE,
+            user=user,
+            author=self.user,
+            details={"comment": self.comment},
+        )
+        super().delete(using=using, keep_parents=keep_parents)

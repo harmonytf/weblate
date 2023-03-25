@@ -23,6 +23,39 @@ it add errors.
 
    :setting:`AUTOFIX_LIST`
 
+Trailing ellipsis replacer
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Replace trailing dots (``...``) with an ellipsis (``…``) to make it consistent with the source string.
+
+
+Zero-width space removal
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Zero width space is typically not desired in the translation. This fix will
+remove it unless it is present in the source string as well.
+
+Control characters removal
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Removes any control characters from the translation.
+
+Unsafe HTML cleanup
+~~~~~~~~~~~~~~~~~~~
+
+When turned on using a ``safe-html`` flag it sanitizes HTML markup.
+
+.. seealso::
+
+   :ref:`check-safe-html`
+
+Trailing and leading whitespace fixer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Makes leading and trailing whitespace consistent with the source string. The
+behavior can be fine-tuned using ``ignore-begin-space`` and
+``ignore-end-space`` flags to skip processing parts of the string.
+
 .. _checks:
 
 Quality checks
@@ -210,7 +243,7 @@ C# format
 .. seealso::
 
    :ref:`check-formats`,
-   `C# String Format <https://docs.microsoft.com/en-us/dotnet/api/system.string.format?view=netframework-4.7.2>`_
+   `C# String Format <https://learn.microsoft.com/en-us/dotnet/api/system.string.format?view=netframework-4.7.2>`_
 
 .. _check-es-format:
 
@@ -272,7 +305,7 @@ XML tags. You can configure the behavior of this check by using ``icu-flags:*``,
 opting into XML support or by disabling certain sub-checks. For example, the following flag
 enables XML support while disabling validation of plural sub-messages:
 
-.. code-block::text
+.. code-block:: text
 
    icu-message-format, icu-flags:xml:-plural_selectors
 
@@ -305,7 +338,7 @@ Additionally, when ``strict-xml`` is not enabled but ``xml`` is enabled, you can
 For example, the following flag will only allow XML tags to be matched if they start with
 ``<x:``:
 
-.. code-block::text
+.. code-block:: text
 
   icu-message-format, icu-flags:xml, icu-tag-prefix:"x:"
 
@@ -360,6 +393,12 @@ Java MessageFormat
 .. versionchanged:: 4.14
 
    This used to be toggled by ``java-messageformat`` flag, it was changed for consistency with GNU gettext.
+
+This check validates that format string is valid for the Java MessageFormat
+class. Besides matching format strings in the curly braces, it also verifies
+single quotes as they have a special meaning. Whenever writing single quote, it
+should be written as ``''``. When not paired, it is treated as beginning of
+quoting and will not be shown when rendering the string.
 
 .. seealso::
 
@@ -576,7 +615,7 @@ Ruby format
 .. seealso::
 
    :ref:`check-formats`,
-   `Ruby Kernel#sprintf <https://ruby-doc.org/core/Kernel.html#method-i-sprintf>`_
+   `Ruby Kernel#sprintf <https://ruby-doc.org/current/Kernel.html#method-i-sprintf>`_
 
 .. _check-scheme-format:
 
@@ -844,7 +883,7 @@ Mismatched \\n
 :Flag to ignore: ``ignore-escaped-newline``
 
 Usually escaped newlines are important for formatting program output.
-Check fails if the number of ``\n`` literals in translation do not match the source.
+Check fails if the number of ``\n`` literals in translation does not match the source.
 
 .. _check-end-colon:
 
@@ -974,7 +1013,7 @@ Mismatching line breaks
 :Flag to ignore: ``ignore-newline-count``
 
 Usually newlines are important for formatting program output.
-Check fails if the number of ``\n`` literals in translation do not match the source.
+Check fails if the number of new lines in translation does not match the source.
 
 
 .. _check-plurals:
@@ -1219,8 +1258,8 @@ autofixer which can automatically sanitize the markup.
 
 .. seealso::
 
-   The HTML check is performed by the `Bleach <https://bleach.readthedocs.io/>`_
-   library developed by Mozilla.
+   The HTML check is performed by the `Ammonia <https://github.com/rust-ammonia/ammonia>`_
+   library.
 
 
 
@@ -1258,6 +1297,9 @@ not a desired result from changing the translation, but occasionally it is.
 
 Checks that XML tags are replicated between both source and translation.
 
+The check is automatically enabled for XML like strings. You might need to add
+``xml-text`` flag in some cases to force turning it on.
+
 .. note::
 
    This check is disabled by the ``safe-html`` flag as the HTML cleanup done by
@@ -1277,6 +1319,9 @@ XML syntax
 :Flag to ignore: ``ignore-xml-invalid``
 
 The XML markup is not valid.
+
+The check is automatically enabled for XML like strings. You might need to add
+``xml-text`` flag in some cases to force turning it on.
 
 .. note::
 

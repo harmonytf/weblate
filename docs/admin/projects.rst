@@ -125,6 +125,10 @@ Project name
 
 Verbose project name, used to display the project name.
 
+.. seealso::
+
+   :setting:`PROJECT_NAME_RESTRICT_RE`
+
 .. _project-slug:
 
 URL slug
@@ -140,6 +144,12 @@ Project website
 URL where translators can find more info about the project.
 
 This is a required parameter unless turned off by :setting:`WEBSITE_REQUIRED`.
+
+.. seealso::
+
+   :setting:`PROJECT_WEB_RESTRICT_HOST`,
+   :setting:`PROJECT_WEB_RESTRICT_NUMERIC`,
+   :setting:`PROJECT_WEB_RESTRICT_RE`
 
 .. _project-instructions:
 
@@ -241,6 +251,8 @@ Using non standard code: ``ia_FOO:ia``
 
 .. seealso::
 
+    :ref:`new-translations`,
+    :ref:`language-code`,
     :ref:`language-parsing-codes`
 
 .. _component:
@@ -793,6 +805,10 @@ Priority
 +++++++++
 
 Components with higher priority are offered first to translators.
+
+.. versionchanged:: 4.15
+
+   This now also affects ordering of matched glossary terms.
 
 .. _component-restricted:
 

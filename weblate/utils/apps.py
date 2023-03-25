@@ -1,25 +1,11 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from django.apps import AppConfig
 from django.core.checks import register
 from django.db.models import CharField, TextField
+from django.db.models.lookups import IExact, Regex
 
 from weblate.utils.checks import (
     check_cache,
@@ -40,7 +26,8 @@ from weblate.utils.errors import init_error_collection
 
 from .db import (
     MySQLSearchLookup,
-    MySQLSubstringLookup,
+    PostgreSQLILikeLookup,
+    PostgreSQLRegexLookup,
     PostgreSQLSearchLookup,
     PostgreSQLSubstringLookup,
 )
@@ -69,12 +56,20 @@ class UtilsConfig(AppConfig):
         init_error_collection()
 
         if using_postgresql():
-            CharField.register_lookup(PostgreSQLSearchLookup)
-            TextField.register_lookup(PostgreSQLSearchLookup)
-            CharField.register_lookup(PostgreSQLSubstringLookup)
-            TextField.register_lookup(PostgreSQLSubstringLookup)
+            lookups = (
+                (PostgreSQLILikeLookup,),
+                (PostgreSQLSearchLookup,),
+                (PostgreSQLSubstringLookup,),
+                (PostgreSQLRegexLookup, "trgm_regex"),
+            )
         else:
-            CharField.register_lookup(MySQLSearchLookup)
-            TextField.register_lookup(MySQLSearchLookup)
-            CharField.register_lookup(MySQLSubstringLookup)
-            TextField.register_lookup(MySQLSubstringLookup)
+            lookups = (
+                (IExact, "ilike"),
+                (MySQLSearchLookup,),
+                (MySQLSearchLookup, "substring"),
+                (Regex, "trgm_regex"),
+            )
+
+        for lookup in lookups:
+            CharField.register_lookup(*lookup)
+            TextField.register_lookup(*lookup)

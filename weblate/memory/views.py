@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -71,12 +56,11 @@ class MemoryFormView(ErrorFormView):
 
 
 class DeleteView(MemoryFormView):
-
     form_class = DeleteForm
 
     def form_valid(self, form):
         if not check_perm(self.request.user, "memory.delete", self.objects):
-            raise PermissionDenied()
+            raise PermissionDenied
         entries = Memory.objects.filter_type(**self.objects)
         if "origin" in self.request.POST:
             entries = entries.filter(origin=self.request.POST["origin"])
@@ -86,7 +70,6 @@ class DeleteView(MemoryFormView):
 
 
 class RebuildView(MemoryFormView):
-
     form_class = DeleteForm
 
     def form_valid(self, form):
@@ -94,7 +77,7 @@ class RebuildView(MemoryFormView):
             not check_perm(self.request.user, "memory.delete", self.objects)
             or "project" not in self.objects
         ):
-            raise PermissionDenied()
+            raise PermissionDenied
         origin = self.request.POST.get("origin")
         project = self.objects["project"]
         component_id = None
@@ -104,7 +87,7 @@ class RebuildView(MemoryFormView):
                     slug=origin.split("/", 1)[-1]
                 ).id
             except ObjectDoesNotExist:
-                raise PermissionDenied()
+                raise PermissionDenied
         # Delete private entries
         entries = Memory.objects.filter_type(**self.objects)
         if origin:
@@ -133,7 +116,7 @@ class UploadView(MemoryFormView):
 
     def form_valid(self, form):
         if not check_perm(self.request.user, "memory.edit", self.objects):
-            raise PermissionDenied()
+            raise PermissionDenied
         try:
             Memory.objects.import_file(
                 self.request, form.cleaned_data["file"], **self.objects

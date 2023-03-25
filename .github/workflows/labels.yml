@@ -1,3 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
+#
+# SPDX-License-Identifier: CC0-1.0
+
 # This file is maintained in https://github.com/WeblateOrg/meta/
 name: Issue labeled
 
@@ -13,7 +17,7 @@ jobs:
     permissions:
       issues: write  # for peter-evans/create-or-update-comment to create or update comment
       pull-requests: write  # for peter-evans/create-or-update-comment to create or update comment
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Add backlog comment
       uses: peter-evans/create-or-update-comment@v2

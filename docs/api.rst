@@ -1881,6 +1881,7 @@ Translations
     :type language: string
     :<json string key: Name of translation unit (used as key or context)
     :<json array value: Source strings (use single string if not creating plural)
+    :<json int state: String state; see :http:get:`/api/units/(int:id)/`
     :>json object unit: newly created unit; see :http:get:`/api/units/(int:id)/`
 
     .. seealso::
@@ -1917,8 +1918,8 @@ Translations
         parameter differs and without such parameter you get translation file
         as stored in VCS.
 
-    :query format: File format to use; if not specified no format conversion happens; supported file formats: ``po``, ``mo``, ``xliff``, ``xliff11``, ``tbx``, ``csv``, ``xlsx``, ``json``, ``aresource``, ``strings``
-    :query string q: Filter downloaded strings, see :ref:`search`.
+    :query format: File format to use; if not specified no format conversion happens; supported file formats: ``po``, ``mo``, ``xliff``, ``xliff11``, ``tbx``, ``tmx``, ``csv``, ``xlsx``, ``json``, ``aresource``, ``strings``
+    :query string q: Filter downloaded strings, see :ref:`search`, only applicable when conversion is in place (``format`` is specified).
 
     :param project: Project URL slug
     :type project: string
@@ -1937,7 +1938,7 @@ Translations
     :type component: string
     :param language: Translation language code
     :type language: string
-    :form string conflict: How to deal with conflicts (``ignore``, ``replace-translated`` or ``replace-approved``)
+    :form string conflicts: How to deal with conflicts (``ignore``, ``replace-translated`` or ``replace-approved``)
     :form file file: Uploaded file
     :form string email: Author e-mail
     :form string author: Author name
@@ -2070,6 +2071,7 @@ and XLIFF.
     :>json string context: translation unit context
     :>json string note: translation unit note
     :>json string flags: translation unit flags
+    :>json array labels: translation unit labels, available on source units
     :>json int state: unit state, 0 - untranslated, 10 - needs editing, 20 - translated, 30 - approved, 100 - read only
     :>json boolean fuzzy: whether the unit is fuzzy or marked for review
     :>json boolean translated: whether the unit is translated
@@ -2100,6 +2102,7 @@ and XLIFF.
     :<json array target: target string
     :<json string explanation: String explanation, available on source units, see :ref:`additional`
     :<json string extra_flags: Additional string flags, available on source units, see :ref:`custom-checks`
+    :>json array labels: labels, available on source units
 
 .. http:put::  /api/units/(int:id)/
 
@@ -2113,6 +2116,7 @@ and XLIFF.
     :<json array target: target string
     :<json string explanation: String explanation, available on source units, see :ref:`additional`
     :<json string extra_flags: Additional string flags, available on source units, see :ref:`custom-checks`
+    :>json array labels: labels, available on source units
 
 .. http:delete::  /api/units/(int:id)/
 
@@ -2568,7 +2572,7 @@ update individual repositories; see
 
         :ref:`azure-setup`
             For instruction on setting up Azure integration
-        https://docs.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
+        https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
             Generic information about Azure DevOps Web Hooks
         :setting:`ENABLE_HOOKS`
             For enabling hooks for whole Weblate

@@ -493,7 +493,7 @@ The PO file header will look like this:
 
 .. code-block:: po
 
-    # Michal Čihař <michal@cihar.com>, 2012, 2018, 2019, 2020.
+    # Michal Čihař <michal@weblate.org>, 2012, 2018, 2019, 2020.
     # Pavel Borecki <pavel@example.com>, 2018, 2019.
     # Filip Hron <filip@example.com>, 2018, 2019.
     # anonymous <noreply@weblate.org>, 2019.
@@ -738,6 +738,22 @@ Unused strings are removed, and new ones added as copies of the source string.
 .. seealso::
 
    :ref:`faq-cleanup`
+
+.. _addon-weblate.xml.customize:
+
+Customize XML output
+--------------------
+
+.. versionadded:: 4.15
+
+:Add-on ID: ``weblate.xml.customize``
+:Configuration: +------------------+----------------------------------------+--+
+                | ``closing_tags`` | Include closing tag for blank XML tags |  |
+                +------------------+----------------------------------------+--+
+:Triggers: storage post-load
+
+Allows adjusting XML output behavior, for example closing tags instead of self-
+closing tags for empty tags.
 
 .. _addon-weblate.yaml.customize:
 

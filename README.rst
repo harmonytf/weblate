@@ -20,6 +20,10 @@ Install it, or use the Hosted Weblate service at `weblate.org`_.
     :alt: CII Best Practices
     :target: https://bestpractices.coreinfrastructure.org/projects/552
 
+.. image:: https://api.reuse.software/badge/github.com/WeblateOrg/weblate
+    :alt: REUSE status
+    :target: https://api.reuse.software/info/github.com/WeblateOrg/weblate
+
 .. image:: https://img.shields.io/pypi/v/weblate.svg
     :target: https://pypi.org/project/Weblate/
 
@@ -65,7 +69,7 @@ Live chat about Weblate is available at `Libera.Chat <https://libera.chat/>`_ IR
 License
 -------
 
-Copyright © 2012–2022 Michal Čihař michal@cihar.com
+Copyright © Michal Čihař michal@weblate.org
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -74,9 +78,7 @@ version.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY
 WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License along with
-this program. If not, see https://www.gnu.org/licenses/.
+PARTICULAR PURPOSE. See the `GNU General Public License`_ for more details.
 
 .. _weblate.org: https://weblate.org/
+.. _GNU General Public License: https://www.gnu.org/licenses/gpl-3.0.html

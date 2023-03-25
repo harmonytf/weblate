@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import re
 
@@ -198,6 +183,16 @@ class JSONCustomizeForm(BaseAddonForm):
         ],
         required=True,
         initial="space",
+    )
+
+
+class XMLCustomizeForm(BaseAddonForm):
+    """Class defining user Form to configure XML Formatting AddOn."""
+
+    closing_tags = forms.BooleanField(
+        label=_("Include closing tag for blank XML tags"),
+        required=False,
+        initial=True,
     )
 
 
@@ -389,7 +384,7 @@ class DiscoveryForm(BaseAddonForm):
         if self.cleaned_match_re is None:
             matches = {"component": "test"}
         else:
-            matches = {key: "test" for key in self.cleaned_match_re.groupindex.keys()}
+            matches = {key: "test" for key in self.cleaned_match_re.groupindex}
         return validate_render(value, **matches)
 
     def template_clean(self, name):

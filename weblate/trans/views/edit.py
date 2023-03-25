@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
 import time
@@ -64,7 +49,7 @@ from weblate.trans.templatetags.translations import (
     unit_state_class,
     unit_state_title,
 )
-from weblate.trans.util import join_plural, redirect_next, render, split_plural
+from weblate.trans.util import redirect_next, render, split_plural
 from weblate.utils import messages
 from weblate.utils.antispam import is_spam
 from weblate.utils.hash import hash_to_checksum
@@ -107,6 +92,7 @@ def get_other_units(unit):
         "matching": [],
         "context": [],
         "source": [],
+        "other": [],
     }
 
     allow_merge = False
@@ -119,42 +105,62 @@ def get_other_units(unit):
     if unit.source and unit.context:
         match = Q(source=unit.source) & Q(context=unit.context)
         if component.has_template():
-            query = Q(source=unit.source) | Q(context=unit.context)
+            query = Q(source__ilike=unit.source) | Q(context__ilike=unit.context)
         else:
-            query = Q(source=unit.source)
+            query = Q(source__ilike=unit.source)
     elif unit.source:
         match = Q(source=unit.source) & Q(context="")
-        query = Q(source=unit.source)
+        query = Q(source__ilike=unit.source)
     elif unit.context:
         match = Q(context=unit.context)
-        query = Q(context=unit.context)
+        query = Q(context__ilike=unit.context)
     else:
         return result
 
+    units = Unit.objects.filter(
+        query,
+        translation__component__project=component.project,
+        translation__language=translation.language,
+    )
+    # Use memory_db for the query in case it exists. This is supposed
+    # to be a read-only replica for offloading expensive translation
+    # queries.
+    if "memory_db" in settings.DATABASES:
+        units = units.using("memory_db")
+
     units = (
-        Unit.objects.filter(
-            query,
-            translation__component__project=component.project,
-            translation__language=translation.language,
-        )
-        .annotate(
+        units.annotate(
             matches_current=Case(
                 When(condition=match, then=1), default=0, output_field=IntegerField()
             )
         )
+        .select_related(
+            "translation",
+            "translation__language",
+            "translation__plural",
+            "translation__component",
+            "translation__component__project",
+            "translation__component__source_language",
+        )
         .order_by("-matches_current")
     )
 
-    units_count = units.count()
+    max_units = 20
+    units_limited = units[:max_units]
+    units_count = len(units_limited)
 
     # Is it only this unit?
     if units_count == 1:
         return result
 
-    result["total"] = units_count
-    result["skipped"] = units_count > 20
+    if units_count == max_units:
+        # Get the real units count from the database
+        units_count = units.count()
 
-    for item in units[:20]:
+    result["total"] = units_count
+    result["skipped"] = units_count > max_units
+
+    for item in units_limited:
         item.allow_merge = item.differently_translated = (
             item.translated and item.target != unit.target
         )
@@ -176,6 +182,8 @@ def get_other_units(unit):
             result["source"].append(item)
         elif item.context == unit.context:
             result["context"].append(item)
+        else:
+            result["other"].append(item)
 
     # Slightly different logic to allow applying current translation to
     # the propagated strings
@@ -297,7 +305,7 @@ def perform_suggestion(unit, form, request):
     # Create the suggestion
     result = Suggestion.objects.add(
         unit,
-        join_plural(form.cleaned_data["target"]),
+        form.cleaned_data["target"],
         request,
         request.user.has_perm("suggestion.vote", unit),
     )
@@ -318,7 +326,7 @@ def perform_translation(unit, form, request):
     project = unit.translation.component.project
     # Remember old checks
     oldchecks = unit.all_checks_names
-    # TODO
+    # Alernative translations handling
     add_alternative = "add_alternative" in request.POST
 
     # Update explanation for glossary
@@ -487,12 +495,9 @@ def check_suggest_permissions(request, mode, unit, suggestion):
                 request, _("You do not have privilege to delete suggestions!")
             )
             return False
-    elif mode in ("upvote", "downvote"):
-        if not user.has_perm("suggestion.vote", unit):
-            messages.error(
-                request, _("You do not have privilege to vote for suggestions!")
-            )
-            return False
+    elif mode in ("upvote", "downvote") and not user.has_perm("suggestion.vote", unit):
+        messages.error(request, _("You do not have privilege to vote for suggestions!"))
+        return False
     return True
 
 
@@ -623,10 +628,7 @@ def translate(request, project, component, lang):  # noqa: C901
         return response
 
     # Show secondary languages for signed in users
-    if user.is_authenticated:
-        secondary = unit.get_secondary_units(user)
-    else:
-        secondary = None
+    secondary = unit.get_secondary_units(user) if user.is_authenticated else None
 
     # Prepare form
     form = TranslationForm(user, unit)
@@ -652,7 +654,7 @@ def translate(request, project, component, lang):  # noqa: C901
             "unit": unit,
             "nearby": unit.nearby(user.profile.nearby_strings),
             "nearby_keys": unit.nearby_keys(user.profile.nearby_strings),
-            "others": get_other_units(unit),
+            "others": get_other_units(unit) if user.is_authenticated else {"total": 0},
             "search_url": search_result["url"],
             "search_items": search_result["items"],
             "search_query": search_result["query"],
@@ -707,7 +709,7 @@ def auto_translation(request, project, component, lang):
     translation = get_translation(request, project, component, lang)
     project = translation.component.project
     if not request.user.has_perm("translation.auto", project):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     autoform = AutoForm(translation.component, request.POST)
 
@@ -748,7 +750,7 @@ def comment(request, pk):
     component = unit.translation.component
 
     if not request.user.has_perm("comment.add", unit.translation):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     form = CommentForm(component.project, request.POST)
 
@@ -787,13 +789,13 @@ def delete_comment(request, pk):
     comment_obj = get_object_or_404(Comment, pk=pk)
 
     if not request.user.has_perm("comment.delete", comment_obj):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     fallback_url = comment_obj.unit.get_absolute_url()
 
     if "spam" in request.POST:
         comment_obj.report_spam()
-    comment_obj.delete()
+    comment_obj.delete(user=request.user)
     messages.info(request, _("Comment has been deleted."))
 
     return redirect_next(request.POST.get("next"), fallback_url)
@@ -806,12 +808,11 @@ def resolve_comment(request, pk):
     comment_obj = get_object_or_404(Comment, pk=pk)
 
     if not request.user.has_perm("comment.resolve", comment_obj):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     fallback_url = comment_obj.unit.get_absolute_url()
 
-    comment_obj.resolved = True
-    comment_obj.save(update_fields=["resolved"])
+    comment_obj.resolve(user=request.user)
     messages.info(request, _("Comment has been resolved."))
 
     return redirect_next(request.POST.get("next"), fallback_url)
@@ -969,7 +970,7 @@ def save_zen(request, project, component, lang):
 def new_unit(request, project, component, lang):
     translation = get_translation(request, project, component, lang)
     if not request.user.has_perm("unit.add", translation):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     form = get_new_unit_form(translation, request.user, request.POST)
     if not form.is_valid():
@@ -989,7 +990,7 @@ def delete_unit(request, unit_id):
     unit = get_object_or_404(Unit, pk=unit_id)
 
     if not request.user.has_perm("unit.delete", unit):
-        raise PermissionDenied()
+        raise PermissionDenied
 
     try:
         unit.translation.delete_unit(request, unit)

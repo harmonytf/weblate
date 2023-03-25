@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012–2022 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import re
 
@@ -31,7 +16,8 @@ from weblate.auth.models import get_anonymous
 
 
 def get_user(request):
-    """Based on django.contrib.auth.middleware.get_user.
+    """
+    Based on django.contrib.auth.middleware.get_user.
 
     Adds handling of anonymous user which is stored in database.
     """
@@ -83,7 +69,8 @@ class AuthenticationMiddleware:
 
 
 class RequireLoginMiddleware:
-    """Middleware that applies the login_required decorator to matching URL patterns.
+    """
+    Middleware that applies the login_required decorator to matching URL patterns.
 
     To use, add the class to MIDDLEWARE and
     define LOGIN_REQUIRED_URLS and LOGIN_REQUIRED_URLS_EXCEPTIONS in your
@@ -134,7 +121,7 @@ class RequireLoginMiddleware:
             import weblate.gitexport.views
 
             if request.path.startswith("/git/"):
-                if request.META.get("HTTP_AUTHORIZATION"):
+                if request.headers.get("authorization"):
                     return None
                 return weblate.gitexport.views.response_authenticate()
 
