@@ -7,7 +7,7 @@ from weblate.checks.base import TargetCheck
 SOURCE_ENGINE_COLOR_REGEX = re.compile(r'\^(?P<color>[0-9A-F]{8})')
 SOURCE_ENGINE_PARAM_REGEX = re.compile(r'(?P<param>%s[0-9]{1})')
 SOURCE_ENGINE_BUTTON_REGEX = re.compile(r'(?P<btn>%\[[A-Z_\|]+\]%)')
-SOURCE_ENGINE_BIND_REGEX = re.compile(r'(?P<bind>%(?!s[0-9])[A-Za-z0-9_+\-]+%)')
+SOURCE_ENGINE_BIND_REGEX = re.compile(r'(?P<bind>%(?!s[0-9])(?:[+\-]{1})?[A-Za-z0-9_]+%)')
 SOURCE_ENGINE_RUI_REGEX = re.compile(r'(?P<rui>%\$(?:rui|vgui)[A-Za-z0-9_/\\]+%)')
 SOURCE_ENGINE_R2_FONT_STYLE_REGEX = re.compile(r'(?P<fontstyle>`[0-9]{1})')
 
@@ -15,6 +15,7 @@ class BaseStatsCheck(TargetCheck):
     stats_check_regex = "INVALID"
     stats_check_group_name = "INVALID"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = False
 
     def string_to_stats(self, string: str, regex: re.Pattern[str], group_name: str, case_insensitive: bool = False):
         stats = {}
@@ -35,12 +36,12 @@ class BaseStatsCheck(TargetCheck):
         for x in stats_source:
             if not (x in stats_target):
                 return True
-            if stats_source[x] != stats_target[x]:
+            if stats_source[x] != stats_target[x] and not self.stats_check_allow_different_number_of_occurrences:
                 return True
         for x in stats_target:
             if not (x in stats_source):
                 return True
-            if stats_target[x] != stats_source[x]:
+            if stats_target[x] != stats_source[x] and not self.stats_check_allow_different_number_of_occurrences:
                 return True
 
         return False
@@ -55,6 +56,7 @@ class MatchingColors(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_COLOR_REGEX
     stats_check_group_name = "color"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = True
 
 class MatchingParams(BaseStatsCheck):
     """Check Source Engine string parameters like %s1."""
@@ -66,6 +68,7 @@ class MatchingParams(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_PARAM_REGEX
     stats_check_group_name = "param"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = False
 
 class MatchingButtons(BaseStatsCheck):
     """Check Source Engine button codes like %[A_BUTTON]% or %[A_BUTTON|ENTER]%."""
@@ -77,6 +80,7 @@ class MatchingButtons(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_BUTTON_REGEX
     stats_check_group_name = "btn"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = False
 
 class MatchingBinds(BaseStatsCheck):
     """Check Source Engine bind codes like %weaponPickup%."""
@@ -88,6 +92,7 @@ class MatchingBinds(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_BIND_REGEX
     stats_check_group_name = "bind"
     stats_check_case_insensitive = True
+    stats_check_allow_different_number_of_occurrences = False
 
 class MatchingRUI(BaseStatsCheck):
     """Check Titanfall 2 RUI embed codes like %$rui/hud/titan_core%."""
@@ -99,6 +104,7 @@ class MatchingRUI(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_RUI_REGEX
     stats_check_group_name = "rui"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = False
 
 class MatchingR2FontStyle(BaseStatsCheck):
     """Check Source Engine Titanfall 2 font styles like `1, `2, `3."""
@@ -110,3 +116,4 @@ class MatchingR2FontStyle(BaseStatsCheck):
     stats_check_regex = SOURCE_ENGINE_R2_FONT_STYLE_REGEX
     stats_check_group_name = "fontstyle"
     stats_check_case_insensitive = False
+    stats_check_allow_different_number_of_occurrences = True
