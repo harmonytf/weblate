@@ -107,7 +107,7 @@ class TTKitUnit(TranslationUnit):
             if template_comment != comment:
                 comment = template_comment + "\n" + comment
 
-        return comment  # noqa: RET504
+        return comment
 
     def is_translated(self):
         """Check whether unit is translated."""
@@ -207,7 +207,7 @@ class KeyValueUnit(TTKitUnit):
         # The hasattr check here is needed for merged storages
         # where template is different kind than translations
         if hasattr(self.unit, "value"):
-            return not self.unit.isfuzzy() and self.unit.value != ""
+            return not self.unit.isfuzzy() and self.unit.value
         return self.unit.istranslated()
 
     def set_target(self, target: Union[str, List[str]]):
@@ -260,7 +260,6 @@ class TTKitFormat(TranslationFormat):
             store.settargetlanguage(self.language_code)
         if self.source_language is not None:
             store.setsourcelanguage(self.source_language)
-        return
 
     def load(self, storefile, template_store):
         """Load file using defined loader."""
@@ -382,12 +381,8 @@ class TTKitFormat(TranslationFormat):
         # Process source
         if isinstance(source, list):
             context = source[0]
-            if len(source) == 1:
-                # Single string passed plain
-                source = context
-            else:
-                # List passed as multistirng
-                source = multistring(source)
+            # Single string passed plain or multistring
+            source = context if len(source) == 1 else multistring(source)
         else:
             # This is string
             context = source
@@ -399,19 +394,18 @@ class TTKitFormat(TranslationFormat):
         # Build the unit
         unit = self.construct_unit(context)
 
+        # Monolingual translation
         if self.is_template or self.template_store:
-            # Monolingual translation
             unit.setid(key)
             target = source
             source = self.create_unit_key(key, source)
-        else:
-            # Bilingual translation
-            if isinstance(unit, (tbxunit, xliffunit)) and key:
-                unit.setid(key)
-            elif self.set_context_bilingual and key:
-                unit.setcontext(key)
-            elif isinstance(unit, BaseJsonUnit):
-                unit.setid(context)
+        # Bilingual translation
+        elif isinstance(unit, (tbxunit, xliffunit)) and key:
+            unit.setid(key)
+        elif self.set_context_bilingual and key:
+            unit.setcontext(key)
+        elif isinstance(unit, BaseJsonUnit):
+            unit.setid(context)
 
         if self.use_settarget and self.source_language:
             unit.setsource(source, self.source_language)
@@ -438,7 +432,7 @@ class TTKitFormat(TranslationFormat):
         result = cls.new_translation
         if isinstance(result, str):
             result = result.encode()
-        return result  # noqa: RET504
+        return result
 
     @classmethod
     def create_new_file(
@@ -607,29 +601,28 @@ class XliffUnit(TTKitUnit):
     is context in other formats.
     """
 
-    def _invalidate_target(self):
-        """Invalidate target cache."""
-        super()._invalidate_target()
-        if "xliff_node" in self.__dict__:
-            del self.__dict__["xliff_node"]
-
     @staticmethod
     def get_unit_node(unit, element: str = "target"):
-        return unit.xmlelement.find(unit.namespaced(element))
+        if unit is not None:
+            return unit.xmlelement.find(unit.namespaced(element))
+        return None
 
-    def get_xliff_node(self):
-        return self.get_unit_node(self.unit)
+    def get_xliff_units(self):
+        # Iterate over poxliff sub-units, or main unit
+        return getattr(self.unit, "units", [self.unit])
 
-    @cached_property
-    def xliff_node(self):
-        return self.get_xliff_node()
+    def get_xliff_nodes(self):
+        return (self.get_unit_node(unit) for unit in self.get_xliff_units())
 
-    @property
-    def xliff_state(self):
-        node = self.xliff_node
-        if node is None:
-            return None
-        return node.get("state", None)
+    def get_xliff_states(self):
+        result = []
+        for node in self.get_xliff_nodes():
+            if node is None:
+                continue
+            state = node.get("state", None)
+            if state is not None:
+                result.append(state)
+        return result
 
     @cached_property
     def context(self):
@@ -667,22 +660,29 @@ class XliffUnit(TTKitUnit):
 
         That's why we handle it on our own.
         """
-        return self.target and self.xliff_state in XLIFF_FUZZY_STATES
+        return self.target and any(
+            state in XLIFF_FUZZY_STATES for state in self.get_xliff_states()
+        )
 
     def set_state(self, state):
         """Set fuzzy /approved flag on translated unit."""
         self.unit.markapproved(state == STATE_APPROVED)
+        target_state = None
         if state == STATE_FUZZY:
             # Always set state for fuzzy
-            self.xliff_node.set("state", "needs-translation")
+            target_state = "needs-translation"
         elif state == STATE_TRANSLATED:
             # Always set state for translated
-            self.xliff_node.set("state", "translated")
+            target_state = "translated"
         elif state == STATE_APPROVED:
-            self.xliff_node.set("state", "final")
-        elif self.xliff_state:
+            target_state = "final"
+        elif self.get_xliff_states():
             # Only update state if it exists
-            self.xliff_node.set("state", "new")
+            target_state = "new"
+
+        if target_state:
+            for xliff_node in self.get_xliff_nodes():
+                xliff_node.set("state", target_state)
 
     def is_approved(self, fallback=False):
         """Check whether unit is approved."""
@@ -708,9 +708,9 @@ class XliffUnit(TTKitUnit):
     def untranslate(self, language):
         super().untranslate(language)
         # Delete empty <target/> tag
-        xmlnode = self.get_xliff_node()
-        if xmlnode is not None:
-            xmlnode.getparent().remove(xmlnode)
+        for xmlnode in self.get_xliff_nodes():
+            if xmlnode is not None:
+                xmlnode.getparent().remove(xmlnode)
 
     def set_target(self, target: Union[str, List[str]]):
         """Set translation unit target."""
@@ -797,9 +797,9 @@ class RichXliffUnit(XliffUnit):
         self._invalidate_target()
         # Delete the empty target element
         if not target:
-            xmlnode = self.get_xliff_node()
-            if xmlnode is not None:
-                xmlnode.getparent().remove(xmlnode)
+            for xmlnode in self.get_xliff_nodes():
+                if xmlnode is not None:
+                    xmlnode.getparent().remove(xmlnode)
             return
         try:
             converted = xliff_string_to_rich(target)
@@ -1060,11 +1060,9 @@ class BasePoFormat(TTKitFormat, BilingualUpdateMixin):
     @classmethod
     def get_plural(cls, language, store=None):
         """Return matching plural object."""
-        if store:
-            header = store.store.parseheader()
-        else:
-            # This will trigger KeyError later
-            header = {}
+        # Fallback will trigger KeyError later
+        header = store.store.parseheader() if store else {}
+
         try:
             number, formula = Plural.parse_plural_forms(header["Plural-Forms"])
         except (ValueError, KeyError):
@@ -1130,6 +1128,13 @@ class BasePoFormat(TTKitFormat, BilingualUpdateMixin):
                 check=True,
                 text=True,
             )
+        except OSError as error:
+            report_error(cause="Failed msgmerge")
+            raise UpdateError(" ".join(cmd), error) from error
+        except subprocess.CalledProcessError as error:
+            report_error(cause="Failed msgmerge")
+            raise UpdateError(" ".join(cmd), error.output + error.stderr) from error
+        else:
             # The warnings can cause corruption (for example in case
             # PO file header is missing ASCII encoding is assumed)
             errors = []
@@ -1142,12 +1147,6 @@ class BasePoFormat(TTKitFormat, BilingualUpdateMixin):
                 errors.append(line)
             if errors:
                 raise UpdateError(" ".join(cmd), "\n".join(errors))
-        except OSError as error:
-            report_error(cause="Failed msgmerge")
-            raise UpdateError(" ".join(cmd), error)
-        except subprocess.CalledProcessError as error:
-            report_error(cause="Failed msgmerge")
-            raise UpdateError(" ".join(cmd), error.output + error.stderr)
 
     def add_unit(self, ttkit_unit):
         self.store.require_index()
@@ -1977,7 +1976,7 @@ class StringsdictFormat(DictStoreMixin, TTKitFormat):
     <dict>
     </dict>
 </plist>
-"""  # noqa: E501
+"""
 
     @staticmethod
     def mimetype():

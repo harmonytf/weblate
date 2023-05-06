@@ -57,10 +57,9 @@ def change_project(request, project):
             settings_form.save()
             messages.success(request, _("Settings saved"))
             return redirect("settings", project=obj.slug)
-        else:
-            messages.error(
-                request, _("Invalid settings. Please check the form for errors.")
-            )
+        messages.error(
+            request, _("Invalid settings. Please check the form for errors.")
+        )
     else:
         settings_form = ProjectSettingsForm(request, instance=obj)
 
@@ -85,13 +84,12 @@ def change_component(request, project, component):
             form.save()
             messages.success(request, _("Settings saved"))
             return redirect("settings", project=obj.project.slug, component=obj.slug)
-        else:
-            messages.error(
-                request, _("Invalid settings. Please check the form for errors.")
-            )
-            # Get a fresh copy of object, otherwise it will use unsaved changes
-            # from the failed form
-            obj = Component.objects.get(pk=obj.pk)
+        messages.error(
+            request, _("Invalid settings. Please check the form for errors.")
+        )
+        # Get a fresh copy of object, otherwise it will use unsaved changes
+        # from the failed form
+        obj = Component.objects.get(pk=obj.pk)
     else:
         form = ComponentSettingsForm(request, instance=obj)
 
@@ -356,7 +354,6 @@ def component_progress(request, project, component):
 
 
 class BackupsMixin:
-    @method_decorator(login_required)
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         self.obj = get_project(request, kwargs["project"])
@@ -364,6 +361,7 @@ class BackupsMixin:
             raise PermissionDenied
 
 
+@method_decorator(login_required, name="dispatch")
 class BackupsView(BackupsMixin, TemplateView):
     template_name = "trans/backups.html"
 
@@ -381,12 +379,13 @@ class BackupsView(BackupsMixin, TemplateView):
         return context
 
 
+@method_decorator(login_required, name="dispatch")
 class BackupsDownloadView(BackupsMixin, View):
     def get(self, request, *args, **kwargs):
         for backup in self.obj.list_backups():
             if backup["name"] == kwargs["backup"]:
                 return FileResponse(
-                    open(backup["path"], "rb"),
+                    open(backup["path"], "rb"),  # noqa: SIM115
                     as_attachment=True,
                     filename=backup["name"],
                 )

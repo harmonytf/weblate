@@ -58,12 +58,6 @@ The following examples assume you have a working Docker environment, with
 
 Enjoy your Weblate deployment, it's accessible on port 80 of the ``weblate`` container.
 
-.. versionchanged:: 2.15-2
-
-    The setup has changed recently, priorly there was separate web server
-    container, since 2.15-2 the web server is embedded in the Weblate
-    container.
-
 .. versionchanged:: 3.7.1-6
 
    In July 2019 (starting with the 3.7.1-6 tag), the containers are not running
@@ -685,6 +679,14 @@ Generic settings
     Configures GitLab merge-requests integration  by changing
     :setting:`GITLAB_CREDENTIALS`.
 
+    **Example:**
+
+    .. code-block:: sh
+
+       WEBLATE_GITLAB_USERNAME=weblate
+       WEBLATE_GITLAB_HOST=gitlab.com
+       WEBLATE_GITLAB_TOKEN=token
+
     .. seealso::
 
        :ref:`vcs-gitlab`
@@ -914,6 +916,12 @@ Generic settings
    .. versionadded:: 4.15
 
    Configures :setting:`PRIVATE_COMMIT_EMAIL_OPT_IN`.
+
+.. envvar:: WEBLATE_UNUSED_ALERT_DAYS
+
+   .. versionadded:: 4.17
+
+   Configures :setting:`UNUSED_ALERT_DAYS`.
 
 .. envvar:: WEBLATE_CORS_ALLOWED_ORIGINS
 

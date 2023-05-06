@@ -289,7 +289,7 @@ class PluralTextarea(forms.Textarea):
         if language.direction == "rtl":
             result = format_html("{}{}", self.get_rtl_toolbar(fieldname), result)
 
-        return result  # noqa: RET504
+        return result
 
     def render(self, name, value, attrs=None, renderer=None, **kwargs):
         """Render all textareas with correct plural labels."""
@@ -712,7 +712,6 @@ def get_upload_form(user, translation, *args, **kwargs):
 class SearchForm(forms.Form):
     """Text-searching form."""
 
-    # pylint: disable=invalid-name
     q = QueryField()
     sort_by = forms.CharField(required=False, widget=forms.HiddenInput)
     checksum = ChecksumField(required=False)
@@ -788,10 +787,9 @@ class SearchForm(forms.Form):
                     items.append((param, val))
             elif isinstance(value, User):
                 items.append((param, value.username))
-            else:
+            elif value:
                 # It should be a string here
-                if value:
-                    items.append((param, value))
+                items.append((param, value))
         return items
 
     def urlencode(self):
@@ -825,20 +823,21 @@ class MergeForm(UnitForm):
         super().clean()
         if "merge" not in self.cleaned_data:
             return None
+        unit = self.unit
+        translation = unit.translation
+        project = translation.component.project
         try:
-            unit = self.unit
-            translation = unit.translation
-            project = translation.component.project
             self.cleaned_data["merge_unit"] = merge_unit = Unit.objects.get(
                 pk=self.cleaned_data["merge"],
                 translation__component__project=project,
                 translation__language=translation.language,
             )
+        except Unit.DoesNotExist:
+            raise ValidationError(_("Could not find the merged string."))
+        else:
             # Compare in Python to ensure case sensitiveness on MySQL
             if not translation.is_source and unit.source != merge_unit.source:
                 raise ValidationError(_("Could not find merged string."))
-        except Unit.DoesNotExist:
-            raise ValidationError(_("Could not find the merged string."))
         return self.cleaned_data
 
 
@@ -1972,11 +1971,7 @@ class ProjectSettingsForm(SettingsBaseForm, ProjectDocsMixin, ProjectAntispamMix
         data = self.cleaned_data
         if settings.OFFER_HOSTING:
             data["contribute_shared_tm"] = data["use_shared_tm"]
-        if (
-            "access_control" not in data
-            or data["access_control"] is None
-            or data["access_control"] == ""
-        ):
+        if "access_control" not in data or not data["access_control"]:
             data["access_control"] = self.instance.access_control
         access = data["access_control"]
 

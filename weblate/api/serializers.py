@@ -43,7 +43,6 @@ class MultiFieldHyperlinkedIdentityField(serializers.HyperlinkedIdentityField):
         self.strip_parts = strip_parts
         super().__init__(**kwargs)
 
-    # pylint: disable=redefined-builtin
     def get_url(self, obj, view_name, request, format):
         """
         Given an object, return the URL that hyperlinks to the object.
@@ -1234,12 +1233,8 @@ class AddonSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"name": "Can not change add-on name"}
                 )
-        if instance:
-            # Update
-            component = instance.component
-        else:
-            # Create
-            component = self._context["component"]
+        # Update or create
+        component = instance.component if instance else self._context["component"]
 
         # This could probably work, but it safer not to allow it
         if instance and instance.name != name:

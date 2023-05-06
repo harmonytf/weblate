@@ -7,7 +7,6 @@ name: Test
 on:
   push:
     branches-ignore:
-    - dependabot/**
     - deepsource-fix-**
     - renovate/**
     - weblate
@@ -103,7 +102,7 @@ jobs:
       run: |
         coverage combine
         coverage xml
-    - uses: codecov/codecov-action@v3.1.1
+    - uses: codecov/codecov-action@v3.1.2
       with:
         token: ${{secrets.CODECOV_TOKEN}}
         flags: unittests

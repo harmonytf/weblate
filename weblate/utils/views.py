@@ -315,7 +315,7 @@ def download_translation_file(
             units = units.search(query_string)
         exporter.add_units(units)
         response = exporter.get_response(
-            "{{project}}-{0}-{{language}}.{{extension}}".format(
+            "{{project}}-{}-{{language}}.{{extension}}".format(
                 translation.component.slug
             )
         )
@@ -337,7 +337,7 @@ def download_translation_file(
                 raise Http404("File not found")
             # Create response
             response = FileResponse(
-                open(filenames[0], "rb"),
+                open(filenames[0], "rb"),  # noqa: SIM115
                 content_type=translation.component.file_format_cls.mimetype(),
             )
         else:

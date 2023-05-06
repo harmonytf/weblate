@@ -146,7 +146,7 @@ class UnitQuerySet(models.QuerySet):
         )
         if exclude:
             result = result.exclude(pk=unit.id)
-        return result  # noqa: RET504
+        return result
 
     def order_by_request(self, form_data, obj):
         sort_list_request = form_data.get("sort_by", "").split(",")
@@ -340,10 +340,12 @@ class Unit(models.Model, LoggerMixin):
 
     def __str__(self):
         if self.translation.is_template:
-            return self.context
-        if self.context:
-            return f"[{self.context}] {self.source}"
-        return self.source
+            name = self.context
+        elif self.context:
+            name = f"[{self.context}] {self.source}"
+        else:
+            name = self.source
+        return f"{self.pk}: {name}"
 
     def save(
         self,
@@ -692,7 +694,7 @@ class Unit(models.Model, LoggerMixin):
                     state = STATE_TRANSLATED
                 else:
                     # Store previous source and fuzzy flag for monolingual
-                    if previous_source == "":
+                    if not previous_source:
                         source_change = previous_source = self.source
                     state = STATE_FUZZY
                 self.pending = True
@@ -1086,11 +1088,10 @@ class Unit(models.Model, LoggerMixin):
                 action = Change.ACTION_APPROVE
             else:
                 action = Change.ACTION_CHANGE
+        elif self.state == STATE_APPROVED:
+            action = Change.ACTION_APPROVE
         else:
-            if self.state == STATE_APPROVED:
-                action = Change.ACTION_APPROVE
-            else:
-                action = Change.ACTION_NEW
+            action = Change.ACTION_NEW
 
         # Create change object
         change = Change(
@@ -1527,7 +1528,7 @@ class Unit(models.Model, LoggerMixin):
         """Returns list of location filenames."""
         for location in self.location.split(","):
             location = location.strip()
-            if location == "":
+            if not location:
                 continue
             location_parts = location.split(":")
             if len(location_parts) == 2:

@@ -30,8 +30,6 @@ from weblate.utils.state import STATE_LOOKUP
 
 
 class ChangeQuerySet(models.QuerySet):
-    # pylint: disable=no-init
-
     def content(self, prefetch=False):
         """Return queryset with content changes."""
         base = self
@@ -634,7 +632,7 @@ class Change(models.Model, UserDisplayMixin):
 
     def show_source(self):
         """Whether to show content as source change."""
-        return self.action == self.ACTION_SOURCE_CHANGE
+        return self.action in (self.ACTION_SOURCE_CHANGE, self.ACTION_NEW_SOURCE)
 
     def show_content(self):
         """Whether to show content as translation."""
@@ -727,7 +725,7 @@ class Change(models.Model, UserDisplayMixin):
         if self.action in (
             self.ACTION_ADDED_LANGUAGE,
             self.ACTION_REQUESTED_LANGUAGE,
-        ):  # noqa: E501
+        ):
             try:
                 return Language.objects.get(code=details["language"])
             except Language.DoesNotExist:

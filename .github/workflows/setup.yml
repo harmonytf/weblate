@@ -7,7 +7,6 @@ name: Distribution
 on:
   push:
     branches-ignore:
-    - dependabot/**
     - deepsource-fix-**
     - renovate/**
     - weblate
@@ -46,7 +45,7 @@ jobs:
       run: |
         coverage combine
         coverage xml
-    - uses: codecov/codecov-action@v3.1.1
+    - uses: codecov/codecov-action@v3.1.2
       with:
         flags: setup
         name: setup
@@ -113,7 +112,7 @@ jobs:
       run: |
         coverage combine
         coverage xml
-    - uses: codecov/codecov-action@v3.1.1
+    - uses: codecov/codecov-action@v3.1.2
       with:
         flags: setup
         name: dist

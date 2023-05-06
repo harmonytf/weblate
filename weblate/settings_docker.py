@@ -98,6 +98,7 @@ LANGUAGES = (
     ("br", "Brezhoneg"),
     ("ca", "Català"),
     ("cs", "Čeština"),
+    ("cy", "Cymraeg"),
     ("da", "Dansk"),
     ("de", "Deutsch"),
     ("en", "English"),
@@ -575,7 +576,7 @@ SOCIAL_AUTH_SLUGIFY_FUNCTION = "weblate.accounts.pipeline.slugify_username"
 # Password validation configuration
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"  # noqa: E501, pylint: disable=line-too-long
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
@@ -1091,6 +1092,8 @@ AUTOFIX_LIST = [
     "weblate.trans.autofixes.chars.ReplaceTrailingDotsWithEllipsis",
     "weblate.trans.autofixes.chars.RemoveZeroSpace",
     "weblate.trans.autofixes.chars.RemoveControlChars",
+    "weblate.trans.autofixes.chars.DevanagariDanda",
+    "weblate.trans.autofixes.html.BleachHTML",
 ]
 modify_env_list(AUTOFIX_LIST, "AUTOFIX")
 
@@ -1356,6 +1359,8 @@ BORG_EXTRA_ARGS = get_env_list("WEBLATE_BORG_EXTRA_ARGS")
 ENABLE_SHARING = get_env_bool("WEBLATE_ENABLE_SHARING")
 
 EXTRA_HTML_HEAD = os.environ.get("WEBLATE_EXTRA_HTML_HEAD", "")
+
+UNUSED_ALERT_DAYS = get_env_int("WEBLATE_UNUSED_ALERT_DAYS", 365)
 
 # Wildcard loading
 for name in os.environ:

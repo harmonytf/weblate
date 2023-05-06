@@ -8,7 +8,7 @@ import time
 from collections import Counter, defaultdict
 from contextlib import suppress
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 from glob import glob
 from itertools import chain
 from typing import Any, Dict, List, Optional
@@ -25,6 +25,7 @@ from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, F, Q
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy, ngettext, pgettext
@@ -199,8 +200,6 @@ def translation_prefetch_tasks(translations):
 
 
 class ComponentQuerySet(models.QuerySet):
-    # pylint: disable=no-init
-
     def prefetch(self, alerts: bool = True):
         from weblate.trans.models import Alert
 
@@ -745,12 +744,11 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             if changed_git:
                 self.drop_repository_cache()
             create = False
-        else:
+        elif self.is_glossary:
             # Turn on unit management for glossary and disable adding languages
             # as they are added automatically
-            if self.is_glossary:
-                self.manage_units = True
-                self.new_lang = "none"
+            self.manage_units = True
+            self.new_lang = "none"
 
         # Remove leading ./ from paths
         self.filemask = cleanup_path(self.filemask)
@@ -1289,7 +1287,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             owner = matches.group(1)
             slug = self.get_clean_slug(matches.group(2))
         if owner and slug:
-            return f"https://{domain}/{owner}/{slug}/blob/{{branch}}/{{filename}}#L{{line}}"  # noqa
+            return f"https://{domain}/{owner}/{slug}/blob/{{branch}}/{{filename}}#L{{line}}"
 
         return None
 
@@ -1302,7 +1300,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             slug = matches.group(2)
 
         if owner and slug:
-            return f"https://{domain}/{owner}/{slug}/blob/{{branch}}/f/{{filename}}/#_{{line}}"  # noqa
+            return f"https://{domain}/{owner}/{slug}/blob/{{branch}}/f/{{filename}}/#_{{line}}"
 
         return None
 
@@ -1324,7 +1322,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             repository = matches.group(3)
 
         if organization and project and repository:
-            return f"https://{domain}/{organization}/{project}/_git/{repository}/blob/{{branch}}/{{filename}}#L{{line}}"  # noqa
+            return f"https://{domain}/{organization}/{project}/_git/{repository}/blob/{{branch}}/{{filename}}#L{{line}}"
 
         return None
 
@@ -1347,7 +1345,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             parsed = urlparse(repo)
             if not parsed.hostname:
                 parsed = urlparse(f"ssh://{repo}")
-            if parsed.hostname:
+            else:
                 try:
                     port = parsed.port
                 except ValueError:
@@ -1770,7 +1768,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
         # Validate template is valid
         if self.has_template():
             try:
-                self.template_store
+                self.template_store  # noqa: B018
             except FileParseError as error:
                 report_error(
                     cause="Failed to parse template file on commit",
@@ -2107,7 +2105,9 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
     ):
         """Load translations from VCS."""
         try:
-            with self.lock and sentry_sdk.start_span(op="create_translations"):
+            with self.lock and sentry_sdk.start_span(
+                op="create_translations", description=self.full_slug
+            ):
                 return self._create_translations(
                     force, langs, request, changed_template, from_link, change
                 )
@@ -2307,10 +2307,10 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
             self.invalidate_cache()
 
         # Schedule background cleanup if needed
-        if self.needs_cleanup:
-            from weblate.trans.tasks import cleanup_project
+        if self.needs_cleanup and not self.template:
+            from weblate.trans.tasks import cleanup_component
 
-            transaction.on_commit(lambda: cleanup_project.delay(self.project_id))
+            transaction.on_commit(lambda: cleanup_component.delay(self.id))
 
         # Send notifications on new string
         for translation in translations.values():
@@ -2431,6 +2431,16 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
         if self.is_repo_link:
             try:
                 repo = Component.objects.get_linked(self.repo)
+            except (Component.DoesNotExist, ValueError):
+                raise ValidationError(
+                    {
+                        "repo": _(
+                            "Invalid link to a Weblate project, "
+                            "use weblate://project/component."
+                        )
+                    }
+                )
+            else:
                 if repo is not None and repo.is_repo_link:
                     raise ValidationError(
                         {
@@ -2449,15 +2459,6 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
                             )
                         }
                     )
-            except (Component.DoesNotExist, ValueError):
-                raise ValidationError(
-                    {
-                        "repo": _(
-                            "Invalid link to a Weblate project, "
-                            "use weblate://project/component."
-                        )
-                    }
-                )
             # Push repo is not used with link
             for setting in ("push", "branch", "push_branch"):
                 if getattr(self, setting):
@@ -2682,7 +2683,7 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
 
         It tries to find translation files and checks that they are valid.
         """
-        if self.new_lang == "url" and self.project.instructions == "":
+        if self.new_lang == "url" and not self.project.instructions:
             msg = _(
                 "Please either fill in an instruction URL "
                 "or use a different option for adding a new language."
@@ -3065,7 +3066,30 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
         else:
             self.delete_alert("InexistantFiles")
 
+        if self.is_old_unused():
+            self.add_alert("UnusedComponent")
+        else:
+            self.delete_alert("UnusedComponent")
+
         self.update_link_alerts()
+
+    def is_old_unused(self):
+        if settings.UNUSED_ALERT_DAYS == 0:
+            return False
+        if self.is_glossary:
+            # Auto created glossaries can live without being used
+            return False
+        if self.stats.all == self.stats.translated:
+            # Allow fully translated ones
+            return False
+        last_changed = self.stats.last_changed
+        cutoff = timezone.now() - timedelta(days=settings.UNUSED_ALERT_DAYS)
+        if last_changed is not None:
+            # If last content change is present, use it to decide
+            return last_changed < cutoff
+        oldest_change = self.change_set.order_by("timestamp").first()
+        # Weird, each component should have change
+        return oldest_change is None or oldest_change.timestamp < cutoff
 
     def get_ambiguous_translations(self):
         return self.translation_set.filter(language__code__in=AMBIGUOUS.keys())
@@ -3174,12 +3198,15 @@ class Component(models.Model, URLMixin, PathMixin, CacheKeyMixin):
 
     def load_template_store(self, fileobj=None):
         """Load translate-toolkit store for template."""
-        return self.file_format_cls.parse(
-            fileobj or self.get_template_filename(),
-            language_code=self.source_language.code,
-            source_language=self.source_language.code,
-            is_template=True,
-        )
+        with sentry_sdk.start_span(
+            op="load_template_store", description=self.get_template_filename()
+        ):
+            return self.file_format_cls.parse(
+                fileobj or self.get_template_filename(),
+                language_code=self.source_language.code,
+                source_language=self.source_language.code,
+                is_template=True,
+            )
 
     @cached_property
     def template_store(self):

@@ -20,6 +20,7 @@ from django.utils.translation import ngettext, override
 from weblate.addons.models import Addon
 from weblate.auth.models import User, get_anonymous
 from weblate.lang.models import Language
+from weblate.machinery.base import MachineTranslationError
 from weblate.trans.autotranslate import AutoTranslate
 from weblate.trans.exceptions import FileParseError
 from weblate.trans.models import (
@@ -149,36 +150,40 @@ def commit_pending(hours=None, pks=None, logger=None):
 
 
 @app.task(trail=False)
-def cleanup_project(pk):
+def cleanup_component(pk):
     """
-    Perform cleanup of project models.
+    Perform cleanup of component models.
 
     - Remove stale source Unit objects.
     - Update variants.
     """
     try:
-        project = Project.objects.get(pk=pk)
-    except Project.DoesNotExist:
+        component = Component.objects.get(pk=pk)
+    except Component.DoesNotExist:
         return
 
-    for component in project.component_set.filter(template="").iterator():
-        # Remove stale variants
-        with transaction.atomic():
-            component.update_variants()
+    # Skip monolingual components, these handle cleanups based on the template
+    if component.template:
+        return
 
-        translation = component.source_translation
-        # Skip translations with a filename (eg. when POT file is present)
-        if translation.filename:
-            continue
-        with transaction.atomic():
-            # Remove all units where there is just one referenced unit (self)
-            deleted, details = (
-                translation.unit_set.annotate(Count("unit"))
-                .filter(unit__count__lte=1)
-                .delete()
-            )
-            if deleted:
-                translation.log_info("removed leaf units: %s", details)
+    # Remove stale variants
+    with transaction.atomic():
+        component.update_variants()
+
+    translation = component.source_translation
+    # Skip translations with a filename (eg. when POT file is present)
+    if translation.filename:
+        return
+
+    # Remove all units where there is just one referenced unit (self)
+    with transaction.atomic():
+        deleted, details = (
+            translation.unit_set.annotate(Count("unit"))
+            .filter(unit__count__lte=1)
+            .delete()
+        )
+        if deleted:
+            translation.log_info("removed leaf units: %s", details)
 
 
 @app.task(trail=False)
@@ -390,10 +395,18 @@ def auto_translate(
         auto = AutoTranslate(
             user, translation, filter_type, mode, component_wide=component_wide
         )
-        if auto_source == "mt":
-            auto.process_mt(engines, threshold)
-        else:
-            auto.process_others(component)
+        try:
+            if auto_source == "mt":
+                auto.process_mt(engines, threshold)
+            else:
+                auto.process_others(component)
+        except MachineTranslationError as error:
+            translation.log_error("failed automatic translation: %s", error)
+            return {
+                "translation": translation_id,
+                "message": _("Automatic translation failed: %s") % error,
+            }
+
         translation.log_info("completed automatic translation")
 
         if auto.updated == 0:

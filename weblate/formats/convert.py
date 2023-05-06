@@ -124,7 +124,7 @@ class ConvertFormat(TranslationFormat):
     def load(self, storefile, template_store):
         # Did we get file or filename?
         if not hasattr(storefile, "read"):
-            storefile = open(storefile, "rb")
+            storefile = open(storefile, "rb")  # noqa: SIM115
         # Adjust store to have translations
         store = self.convertfile(storefile, template_store)
         if self.needs_target_sync(template_store):
@@ -299,7 +299,7 @@ class OpenDocumentFormat(ConvertFormat):
             templatename = templatename.name
         # This is workaround for weird fuzzy handling in translate-toolkit
         for unit in self.all_units:
-            if unit.xliff_state == "translated":
+            if any(state == "translated" for state in unit.get_xliff_states()):
                 unit.set_state(STATE_APPROVED)
 
         with open(templatename, "rb") as templatefile:
