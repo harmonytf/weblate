@@ -115,3 +115,6 @@ class VDFFormatUTF16(VDFFormat):
     format_id = "valve_vdf_utf16"
     loader = ("vdf", "VDFFileUTF16")
 
+    @classmethod
+    def _get_new_file_content(cls, language):
+        return bytes(super()._get_new_file_content(language), "utf-16-le")
