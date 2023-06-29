@@ -766,21 +766,10 @@ Languages
 
     :param language: Language code
     :type language: string
-    :>json int total: total number of strings
-    :>json int total_words: total number of words
-    :>json timestamp last_change: last changes in the language
-    :>json int recent_changes: total number of changes
-    :>json int translated: number of translated strings
-    :>json float translated_percent: percentage of translated strings
-    :>json int translated_words: number of translated words
-    :>json int translated_words_percent: percentage of translated words
-    :>json int translated_chars: number of translated characters
-    :>json int translated_chars_percent: percentage of translated characters
-    :>json int total_chars: number of total characters
-    :>json int fuzzy: number of fuzzy (marked for edit) strings
-    :>json int fuzzy_percent: percentage of fuzzy (marked for edit) strings
-    :>json int failing: number of failing strings
-    :>json int failing: percentage of failing strings
+
+    .. seealso::
+
+       Returned attributes are described in :ref:`api-statistics`.
 
 
 Projects
@@ -906,7 +895,7 @@ Projects
 
     :param project: Project URL slug
     :type project: string
-    :<json string operation: Operation to perform: one of ``push``, ``pull``, ``commit``, ``reset``, ``cleanup``, ``file-sync``
+    :<json string operation: Operation to perform: one of ``push``, ``pull``, ``commit``, ``reset``, ``cleanup``, ``file-sync``, ``file-scan``
     :>json boolean result: result of the operation
 
     **CURL example:**
@@ -1140,12 +1129,10 @@ Projects
 
     :param project: Project URL slug
     :type project: string
-    :>json int total: total number of strings
-    :>json int translated: number of translated strings
-    :>json float translated_percent: percentage of translated strings
-    :>json int total_words: total number of words
-    :>json int translated_words: number of translated words
-    :>json float words_percent: percentage of translated words
+
+    .. seealso::
+
+       Returned attributes are described in :ref:`api-statistics`.
 
 Components
 ++++++++++
@@ -1212,6 +1199,8 @@ Components
     :>json string auto_lock_error: :ref:`component-auto_lock_error`
     :>json string language_regex: :ref:`component-language_regex`
     :>json string variant_regex: :ref:`component-variant_regex`
+    :>json bool is_glossary: :ref:`component-is_glossary`
+    :>json string glossary_color: :ref:`component-glossary_color`
     :>json string repository_url: URL to repository status; see :http:get:`/api/components/(string:project)/(string:component)/repository/`
     :>json string translations_url: URL to translations list; see :http:get:`/api/components/(string:project)/(string:component)/translations/`
     :>json string lock_url: URL to lock status; see :http:get:`/api/components/(string:project)/(string:component)/lock/`
@@ -1663,7 +1652,10 @@ Components
     :type project: string
     :param component: Component URL slug
     :type component: string
-    :>json array results: array of translation statistics objects; see :http:get:`/api/translations/(string:project)/(string:component)/(string:language)/statistics/`
+
+    .. seealso::
+
+       Returned attributes are described in :ref:`api-statistics`.
 
 .. http:get:: /api/components/(string:project)/(string:component)/links/
 
@@ -1986,21 +1978,10 @@ Translations
     :type component: string
     :param language: Translation language code
     :type language: string
-    :>json string code: language code
-    :>json int failing: number of failing checks
-    :>json float failing_percent: percentage of failing checks
-    :>json int fuzzy: number of fuzzy (marked for edit) strings
-    :>json float fuzzy_percent: percentage of fuzzy (marked for edit) strings
-    :>json int total_words: total number of words
-    :>json int translated_words: number of translated words
-    :>json string last_author: name of last author
-    :>json timestamp last_change: date of last change
-    :>json string name: language name
-    :>json int total: total number of strings
-    :>json int translated: number of translated strings
-    :>json float translated_percent: percentage of translated strings
-    :>json string url: URL to access the translation (engagement URL)
-    :>json string url_translate: URL to access the translation (real translation URL)
+
+    .. seealso::
+
+       Returned attributes are described in :ref:`api-statistics`.
 
 
 Memory
@@ -2425,6 +2406,50 @@ Tasks
     :>json object result: Task result or progress details
     :>json string log: Task log
 
+.. _api-statistics:
+
+Statistics
+++++++++++
+
+
+.. http:get:: /api/(str:object)/statistics/
+
+   There are several statistics endpoints for objects and all of them contain same structure.
+
+   :param object: URL path
+   :type object: string
+   :>json int total: total number of strings
+   :>json int total_words: total number of words
+   :>json int total_chars: total number of characters
+   :>json timestamp last_change: date of last change
+   :>json int translated: number of translated strings
+   :>json float translated_percent: percentage of translated strings
+   :>json int translated_words: number of translated words
+   :>json float translated_words_percent: percentage of translated words
+   :>json int translated_chars: number of translated characters
+   :>json float translated_chars_percent: percentage of translated characters
+   :>json int fuzzy: number of fuzzy (marked for edit) strings
+   :>json float fuzzy_percent: percentage of fuzzy (marked for edit) strings
+   :>json int failing: number of failing checks
+   :>json float failing_percent: percentage of failing checks
+   :>json int approved: number of approved checks
+   :>json float approved_percent: percentage of approved strings
+   :>json int readonly: number of read-only strings
+   :>json float readonly_percent: percentage of read-only strings
+   :>json int suggestions: number of strings with suggestions
+   :>json int comments: number of strings with comments
+   :>json string name: object name
+   :>json string url: URL to access the object (if applicable)
+   :>json string url_translate: URL to access the translation (if applicable)
+   :>json string code: language code (if applicable)
+
+   .. seealso::
+
+      :http:get:`/api/languages/(string:language)/statistics/`,
+      :http:get:`/api/projects/(string:project)/statistics/`,
+      :http:get:`/api/components/(string:project)/(string:component)/statistics/`,
+      :http:get:`/api/translations/(string:project)/(string:component)/(string:language)/statistics/`
+
 Metrics
 +++++++
 
@@ -2445,6 +2470,20 @@ Metrics
     :>json int suggestions:  Number of pending suggestions
     :>json object celery_queues: Lengths of Celery queues, see :ref:`celery`
     :>json string name: Configured server name
+
+Search
++++++++
+
+.. http:get:: /api/search/
+
+   .. versionadded:: 4.18
+
+   Returns site-wide search results as a list. There is no pagination on the
+   result set, only first few matches are returned for each category.
+
+   :>json str name: Name of the matched item.
+   :>json str url: Web URL of the matched item.
+   :>json str category: Category of the matched item.
 
 .. _hooks:
 

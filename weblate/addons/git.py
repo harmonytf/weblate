@@ -5,7 +5,7 @@
 from collections import defaultdict
 from itertools import chain
 
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import BaseAddon
 from weblate.addons.events import EVENT_POST_COMMIT
@@ -16,8 +16,8 @@ from weblate.vcs.base import RepositoryException
 
 class GitSquashAddon(BaseAddon):
     name = "weblate.git.squash"
-    verbose = _("Squash Git commits")
-    description = _("Squash Git commits prior to pushing changes.")
+    verbose = gettext_lazy("Squash Git commits")
+    description = gettext_lazy("Squash Git commits prior to pushing changes.")
     settings_form = GitSquashForm
     compat = {
         "vcs": {
@@ -226,12 +226,15 @@ class GitSquashAddon(BaseAddon):
 
     def post_commit(self, component):
         repository = component.repository
+        branch_updated = False
         with repository.lock:
             # Ensure repository is rebased on current remote prior to squash, otherwise
             # we might be squashing upstream changes as well due to reset.
             if component.repo_needs_merge():
                 try:
-                    component.update_branch(method="rebase", skip_push=True)
+                    branch_updated = component.update_branch(
+                        method="rebase", skip_push=True
+                    )
                 except RepositoryException:
                     return
             if not repository.needs_push():
@@ -249,4 +252,5 @@ class GitSquashAddon(BaseAddon):
                 skip_push=True,
             )
             # Parse translation files to process any updates fetched by update_branch
-            component.create_translations()
+            if branch_updated:
+                component.create_translations()

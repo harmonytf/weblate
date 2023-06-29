@@ -15,7 +15,7 @@ instead of working through huge amount of new text just prior to release.
 This is the process:
 
 1. Developers make changes and push them to the VCS repository.
-2. Optionally the translation files are updated (this depends on the file format, see :ref:`translations-update`).
+2. Optionally the translation files are updated, see :ref:`translations-update`.
 3. Weblate pulls changes from the VCS repository, see :ref:`update-vcs`.
 4. Once Weblate detects changes in translations, translators are notified based on their subscription settings.
 5. Translators submit translations using the Weblate web interface, or upload offline changes.
@@ -65,7 +65,7 @@ source.
 
 * Enable :setting:`AUTO_UPDATE` to automatically update all components on your Weblate instance
 
-* Execute :djadmin:`updategit` (with selection of project or ``--all`` to update all)
+* Execute :wladmin:`updategit` (with selection of project or ``--all`` to update all)
 
 Whenever Weblate updates the repository, the post-update addons will be
 triggered, see :ref:`addons`.
@@ -300,6 +300,12 @@ Overall, following options are available with Git, GitHub and GitLab:
 +-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
 | Push to separate branch           | :ref:`vcs-git`                | SSH URL                       | Branch name                   |
 +-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
+| No push                           | :ref:`vcs-mercurial`          | `empty`                       | `empty`                       |
++-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
+| Push directly                     | :ref:`vcs-mercurial`          | SSH URL                       | `empty`                       |
++-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
+| Push to separate branch           | :ref:`vcs-mercurial`          | SSH URL                       | Branch name                   |
++-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
 | GitHub pull request from fork     | :ref:`vcs-github`             | `empty`                       | `empty`                       |
 +-----------------------------------+-------------------------------+-------------------------------+-------------------------------+
 | GitHub pull request from branch   | :ref:`vcs-github`             | SSH URL [#empty]_             | Branch name                   |
@@ -420,6 +426,8 @@ Consistency check
 The :ref:`check-inconsistent` check fires whenever the strings are different.
 You can utilize this to review such differences manually and choose the right
 translation.
+
+.. _automatic-translation:
 
 Automatic translation
 +++++++++++++++++++++

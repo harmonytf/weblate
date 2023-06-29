@@ -373,6 +373,7 @@ class ProfileTest(FixtureTestCase):
                 "translate_mode": Profile.TRANSLATE_FULL,
                 "zen_mode": Profile.ZEN_VERTICAL,
                 "nearby_strings": 10,
+                "theme": "auto",
             },
         )
         self.assertRedirects(response, reverse("profile"))
@@ -392,6 +393,7 @@ class ProfileTest(FixtureTestCase):
                 "translate_mode": Profile.TRANSLATE_FULL,
                 "zen_mode": Profile.ZEN_VERTICAL,
                 "nearby_strings": 10,
+                "theme": "auto",
             },
         )
         self.assertContains(response, "Select a valid choice.")
@@ -571,11 +573,11 @@ class ProfileTest(FixtureTestCase):
         self.user.profile.languages.clear()
 
         # English is not saved
-        self.client.get(reverse("profile"), HTTP_ACCEPT_LANGUAGE="en")
+        self.client.get(reverse("profile"), headers={"accept-language": "en"})
         self.assertFalse(self.user.profile.languages.exists())
 
         # Other language is saved
-        self.client.get(reverse("profile"), HTTP_ACCEPT_LANGUAGE="cs")
+        self.client.get(reverse("profile"), headers={"accept-language": "cs"})
         self.assertEqual(
             set(self.user.profile.languages.values_list("code", flat=True)), {"cs"}
         )

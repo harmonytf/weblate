@@ -40,6 +40,8 @@ TEST_SCREENSHOT = get_test_file("screenshot.png")
 
 
 class APIBaseTest(APITestCase, RepoTestMixin):
+    CREATE_GLOSSARIES: bool = True
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -2244,7 +2246,9 @@ class TranslationAPITest(APIBaseTest):
             request={"q": 'source:r".*world.*"', "format": "invalid"},
             code=400,
         )
-        self.assertContains(response, "File format not supported", status_code=400)
+        self.assertContains(
+            response, "Conversion to invalid is not supported", status_code=400
+        )
 
     def test_download_invalid_format_url(self):
         args = {"format": "invalid"}
@@ -3019,7 +3023,7 @@ class UnitAPITest(APIBaseTest):
             "api:unit-detail",
             kwargs={"pk": unit.pk},
             method="patch",
-            code=403,
+            code=400,
             request={"state": "30", "target": "Test translation"},
         )
         self.assertFalse(Unit.objects.get(pk=unit.pk).approved)
@@ -3500,7 +3504,7 @@ class ScreenshotAPITest(APIBaseTest):
             ),
         )
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(len(Screenshot.objects.get().units.all()), 0)
+        self.assertEqual(Screenshot.objects.get().units.all().count(), 0)
 
 
 class ChangeAPITest(APIBaseTest):
@@ -3548,10 +3552,51 @@ class MetricsAPITest(APIBaseTest):
 
     def test_ratelimit(self):
         self.authenticate()
-        response = self.client.get(reverse("api:metrics"), HTTP_REMOTE_ADDR="127.0.0.2")
+        response = self.client.get(
+            reverse("api:metrics"), headers={"remote-addr": "127.0.0.2"}
+        )
         current = int(response["X-RateLimit-Remaining"])
-        response = self.client.get(reverse("api:metrics"), HTTP_REMOTE_ADDR="127.0.0.2")
+        response = self.client.get(
+            reverse("api:metrics"), headers={"remote-addr": "127.0.0.2"}
+        )
         self.assertEqual(current - 1, int(response["X-RateLimit-Remaining"]))
+
+
+class SearchAPITest(APIBaseTest):
+    def test_blank(self):
+        self.authenticate()
+        response = self.client.get(reverse("api:search"))
+        self.assertEqual(response.data, [])
+
+    def test_result(self):
+        response = self.client.get(reverse("api:search"), {"q": "test"})
+        self.assertEqual(
+            response.data,
+            [
+                {
+                    "category": "Project",
+                    "name": "Test",
+                    "url": "/projects/test/",
+                },
+                {
+                    "category": "Component",
+                    "name": "Test/Test",
+                    "url": "/projects/test/test/",
+                },
+                {
+                    "category": "User",
+                    "name": "apitest",
+                    "url": "/user/apitest/",
+                },
+            ],
+        )
+
+    def test_language(self):
+        response = self.client.get(reverse("api:search"), {"q": "czech"})
+        self.assertEqual(
+            response.data,
+            [{"category": "Language", "name": "Czech", "url": "/languages/cs/"}],
+        )
 
 
 class ComponentListAPITest(APIBaseTest):

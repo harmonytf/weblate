@@ -573,6 +573,7 @@
           .attr("dir", this.state.dir)
           .text(el.text),
       );
+      row.append($("<td>").html(el.diff));
       row.append($("<td/>").attr("class", "machinery-text").text(el.source));
       row.append(service);
 
@@ -682,7 +683,7 @@
             base.source == translation.source
           ) {
             // Add origin to current ones
-            var current = $this.children("td:nth-child(3)");
+            var current = $this.children("td:nth-child(4)");
             if (base.quality < translation.quality) {
               service.append("<br/>");
               service.append(current.html());

@@ -353,6 +353,12 @@ class BulkEditTest(ViewTestCase):
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        response = self.client.post(
+            reverse("bulk-edit", kwargs=self.kw_project),
+            {"q": "state:needs-editing", "state": -1, "add_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, no strings were updated.")
         unit = self.get_unit()
         self.assertIn(label, unit.all_labels)
         self.assertEqual(getattr(unit.translation.stats, f"label:{label.name}"), 1)
@@ -368,6 +374,12 @@ class BulkEditTest(ViewTestCase):
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        response = self.client.post(
+            reverse("bulk-edit", kwargs=self.kw_project),
+            {"q": "state:needs-editing", "state": -1, "remove_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, no strings were updated.")
         unit = self.get_unit()
         self.assertNotIn(label, unit.labels.all())
         self.assertEqual(getattr(unit.translation.stats, f"label:{label.name}"), 0)
@@ -378,16 +390,44 @@ class BulkEditTest(ViewTestCase):
             0,
         )
 
-    def test_source_state(self):
-        mono = Component.objects.create(
-            name="Test2",
-            slug="test2",
-            project=self.project,
-            repo="weblate://test/test",
-            file_format="json",
-            filemask="json-mono/*.json",
-            template="json-mono/en.json",
+    def test_bulk_translation_label(self):
+        label = self.project.label_set.create(
+            name="Automatically translated", color="black"
         )
+        unit = self.get_unit()
+        unit.labels.add(label)
+        # Clear local outdated cache
+        unit.translation.stats.clear()
+        self.assertEqual(
+            getattr(unit.translation.stats, f"label:{label.name}"),
+            1,
+        )
+        response = self.client.post(
+            reverse("bulk-edit", kwargs=self.kw_project),
+            {"q": "state:>=empty", "state": -1, "remove_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        unit = self.get_unit()
+        self.assertNotIn(label, unit.labels.all())
+        # Clear local outdated cache
+        unit.translation.stats.clear()
+        self.assertEqual(
+            getattr(unit.translation.stats, f"label:{label.name}"),
+            0,
+        )
+
+    def test_source_state(self):
+        with override_settings(CREATE_GLOSSARIES=self.CREATE_GLOSSARIES):
+            mono = Component.objects.create(
+                name="Test2",
+                slug="test2",
+                project=self.project,
+                repo="weblate://test/test",
+                file_format="json",
+                filemask="json-mono/*.json",
+                template="json-mono/en.json",
+            )
         # Translate single unit
         translation = mono.translation_set.get(language_code="cs")
         translation.unit_set.get(context="hello").translate(

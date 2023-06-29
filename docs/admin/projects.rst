@@ -183,9 +183,13 @@ Contribute to shared translation memory
 
 Whether to contribute to shared translation memory, see :ref:`shared-tm` for more details.
 
+This also affects whether the project can be used as source for :ref:`automatic-translation`.
+
 The default value can be changed by :setting:`DEFAULT_SHARED_TM`.
 
-.. include:: /snippets/not-hosted.rst
+.. note::
+
+    This option is unavailable on Hosted Weblate, it is toggled together with :ref:`project-use_shared_tm`.
 
 .. _project-access_control:
 
@@ -343,9 +347,9 @@ VCS repository used to pull changes.
 Repository push URL
 +++++++++++++++++++
 
-Repository URL used for pushing. This setting is used only for :ref:`vcs-git`
-and :ref:`vcs-mercurial` and push support is turned off for these when this is
-empty.
+Repository URL used for pushing. The behavior of this depends on
+:ref:`component-vcs`, and this is in more detail covered in
+:ref:`push-changes`.
 
 For linked repositories, this is not used and setting from linked component applies.
 
@@ -427,6 +431,18 @@ to be escaped as ``[[]`` or ``[]]``.
 
    :ref:`bimono`,
    :ref:`faq-duplicate-files`
+
+.. _component-screenshot_filemask:
+
+Screenshot file mask
+++++++++++++++++++++
+
+Mask of files to allow discovery/update of screenshots, including path from vcs repository.
+It should include one "*" replacing screenshot file name.
+
+Allowed formats are JPEG, PNG, APNG and GIF.
+
+For example ``docs/*.png``.
 
 .. _component-template:
 
@@ -664,6 +680,9 @@ POSIX style using underscore as a separator
 POSIX style using underscore as a separator, including country code
    POSIX style language code including the country code even when not necessary
    (for example ``cs_CZ``).
+POSIX style using underscore as a separator, including country code (lowercase)
+   POSIX style language code including the country code even when not necessary (lowercase)
+   (for example ``cs_cz``).
 BCP style using hyphen as a separator
    Typically used on web platforms, produces language codes like
    ``pt-BR``.
@@ -755,7 +774,7 @@ Age of changes to commit
 ++++++++++++++++++++++++
 
 Sets how old (in hours) changes have to be before they are committed by
-background task or the :djadmin:`commit_pending` management command. All
+background task or the :wladmin:`commit_pending` management command. All
 changes in a component are committed once there is at least one change
 older than this period.
 
@@ -983,6 +1002,10 @@ The following variables are available in the repository browser or editor templa
 ``{{filename}}``
    filename, you can also strip leading parts using the ``parentdir`` filter, for example ``{{filename|parentdir}}``
 
+.. hint::
+
+   In some places additional variables can be available, see :ref:`addon-weblate.discovery.discovery`.
+
 You can combine them with filters:
 
 .. code-block:: django
@@ -1064,7 +1087,7 @@ Automatic creation of components
 In case your project has dozen of translation files (e.g. for different
 gettext domains, or parts of Android apps), you might want to import them
 automatically. This can either be achieved from the command-line by using
-:djadmin:`import_project` or :djadmin:`import_json`, or by installing the
+:wladmin:`import_project` or :wladmin:`import_json`, or by installing the
 :ref:`addon-weblate.discovery.discovery` add-on.
 
 To use the add-on, you first need to create a component for one translation
@@ -1072,8 +1095,8 @@ file (choose the one that is the least likely to be renamed or removed in future
 and install the add-on on this component.
 
 For the management commands, you need to create a project which will contain all
-components and then run :djadmin:`import_project` or
-:djadmin:`import_json`.
+components and then run :wladmin:`import_project` or
+:wladmin:`import_json`.
 
 .. seealso::
 

@@ -59,7 +59,7 @@ You can limit user’s access to individual projects by selecting a different
 
    Only chosen users can access VCS repository.
 
-   **Choose this for projects that should not be publicly exposed at all.**
+   **Choose this for projects that should not be exposed publicly at all.**
 :guilabel:`Custom`
    Visible only to chosen users.
 
@@ -612,7 +612,7 @@ List of teams
 ^^^^^^^^^^^^^^
 
 The following teams are created upon installation (or after executing
-:djadmin:`setupgroups`) and you are free to modify them. The migration will,
+:wladmin:`setupgroups`) and you are free to modify them. The migration will,
 however, re-create them if you delete or rename them.
 
 `Guests`

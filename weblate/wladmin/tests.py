@@ -74,8 +74,8 @@ class AdminTest(ViewTestCase):
     @tempdir_setting("DATA_DIR")
     def test_ssh_add(self):
         self.assertEqual(check_data_writable(), [])
+        oldpath = os.environ["PATH"]
         try:
-            oldpath = os.environ["PATH"]
             os.environ["PATH"] = ":".join((get_test_file(""), os.environ["PATH"]))
             # Verify there is button for adding
             response = self.client.get(reverse("manage-ssh"))
@@ -240,6 +240,10 @@ class AdminTest(ViewTestCase):
 
     def test_check_user(self):
         response = self.client.get(
+            reverse("manage-users-check"), {"q": self.user.email}, follow=True
+        )
+        self.assertRedirects(response, self.user.get_absolute_url())
+        response = self.client.get(
             reverse("manage-users-check"), {"email": self.user.email}, follow=True
         )
         self.assertRedirects(response, self.user.get_absolute_url())
@@ -257,6 +261,7 @@ class AdminTest(ViewTestCase):
         self.test_send_test_email("Could not send test e-mail")
 
     @responses.activate
+    @override_settings(SITE_TITLE="Test Weblate")
     def test_activation_community(self):
         responses.add(
             responses.POST,
@@ -267,6 +272,7 @@ class AdminTest(ViewTestCase):
                     "backup_repository": "",
                     "expiry": timezone.now(),
                     "in_limits": True,
+                    "limits": {},
                 },
                 cls=DjangoJSONEncoder,
             ),
@@ -283,6 +289,7 @@ class AdminTest(ViewTestCase):
         self.assertTrue(status.discoverable)
 
     @responses.activate
+    @override_settings(SITE_TITLE="Test Weblate")
     def test_activation_hosted(self):
         responses.add(
             responses.POST,
@@ -293,6 +300,7 @@ class AdminTest(ViewTestCase):
                     "backup_repository": "/tmp/xxx",
                     "expiry": timezone.now(),
                     "in_limits": True,
+                    "limits": {},
                 },
                 cls=DjangoJSONEncoder,
             ),

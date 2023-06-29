@@ -80,6 +80,8 @@ Interface language
 
 Choose the language you want to display the UI in.
 
+.. _profile-translated-languages:
+
 Translated languages
 ++++++++++++++++++++
 
@@ -104,6 +106,11 @@ the Hebrew language is shown as secondarily:
 
 Preferences
 -----------
+
+Theme
++++++
+
+Choose whether Weblate follows system settings for dark or light theme, or choose one of them manually.
 
 Default dashboard view
 ++++++++++++++++++++++

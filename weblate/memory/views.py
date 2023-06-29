@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.functional import cached_property
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 from django.views.generic.base import TemplateView
 
 from weblate.lang.models import Language
@@ -66,7 +66,7 @@ class DeleteView(MemoryFormView):
         if "origin" in self.request.POST:
             entries = entries.filter(origin=self.request.POST["origin"])
         entries.delete()
-        messages.success(self.request, _("Entries were deleted."))
+        messages.success(self.request, gettext("Entries were deleted."))
         return super().form_valid(form)
 
 
@@ -104,7 +104,7 @@ class RebuildView(MemoryFormView):
         import_memory.delay(project_id=project.id, component_id=component_id)
         messages.success(
             self.request,
-            _(
+            gettext(
                 "Entries were deleted and the translation memory will be "
                 "rebuilt in the background."
             ),
@@ -123,7 +123,8 @@ class UploadView(MemoryFormView):
                 self.request, form.cleaned_data["file"], **self.objects
             )
             messages.success(
-                self.request, _("File processed, the entries will appear shortly.")
+                self.request,
+                gettext("File processed, the entries will appear shortly."),
             )
         except MemoryImportError as error:
             messages.error(self.request, str(error))  # noqa: G200
@@ -148,9 +149,29 @@ class MemoryView(TemplateView):
         return Memory.objects.filter_type(**self.objects)
 
     def get_origins(self):
-        result = list(
-            self.entries.values("origin").order_by("origin").annotate(Count("id"))
+        def get_url(slug: str) -> str:
+            try:
+                project, component = slug.split("/")
+            except ValueError:
+                return ""
+            return reverse(
+                "component", kwargs={"project": project, "component": component}
+            )
+
+        from_file = list(
+            self.entries.filter(from_file=True)
+            .values("origin")
+            .order_by("origin")
+            .annotate(Count("id"))
         )
+        result = list(
+            self.entries.filter(from_file=False)
+            .values("origin")
+            .order_by("origin")
+            .annotate(Count("id"))
+        )
+        for entry in result:
+            entry["url"] = get_url(entry["origin"])
         if "project" in self.objects:
             slugs = {
                 component.full_slug
@@ -161,8 +182,15 @@ class MemoryView(TemplateView):
                 entry["can_rebuild"] = entry["origin"] in slugs
             # Add missing ones
             for missing in slugs - existing:
-                result.append({"origin": missing, "id__count": 0, "can_rebuild": True})
-        return result
+                result.append(
+                    {
+                        "origin": missing,
+                        "id__count": 0,
+                        "can_rebuild": True,
+                        "url": get_url(missing),
+                    }
+                )
+        return from_file + result
 
     def get_languages(self):
         if "manage" in self.kwargs:

@@ -9,7 +9,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import Error as DjangoDatabaseError
 from django.db import models, transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, Value
+from django.db.models.functions import MD5
 from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.translation import gettext, gettext_lazy, gettext_noop
@@ -29,6 +30,7 @@ from weblate.trans.signals import unit_pre_create
 from weblate.trans.util import (
     get_distinct_translations,
     is_plural,
+    is_unused_string,
     join_plural,
     split_plural,
 )
@@ -138,8 +140,8 @@ class UnitQuerySet(models.QuerySet):
         translation = unit.translation
         component = translation.component
         result = self.filter(
-            source=unit.source,
-            context=unit.context,
+            source__md5=MD5(Value(unit.source)),
+            context__md5=MD5(Value(unit.context)),
             translation__component__project_id=component.project_id,
             translation__language_id=translation.language_id,
             translation__component__source_language_id=component.source_language_id,
@@ -157,6 +159,7 @@ class UnitQuerySet(models.QuerySet):
             "num_words",
             "labels",
             "timestamp",
+            "last_updated",
             "source",
             "target",
             "location",
@@ -299,6 +302,7 @@ class Unit(models.Model, LoggerMixin):
 
     pending = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     extra_flags = models.TextField(
         verbose_name=gettext_lazy("Translation flags"),
@@ -337,6 +341,11 @@ class Unit(models.Model, LoggerMixin):
         unique_together = [("translation", "id_hash")]
         verbose_name = "string"
         verbose_name_plural = "strings"
+        indexes = [
+            models.Index(MD5("source"), name="trans_unit_source_md5_index"),
+            models.Index(MD5("target"), name="trans_unit_target_md5_index"),
+            models.Index(MD5("context"), name="trans_unit_context_md5_index"),
+        ]
 
     def __str__(self):
         if self.translation.is_template:
@@ -365,7 +374,7 @@ class Unit(models.Model, LoggerMixin):
             self.num_words = sum(
                 len(s.split())
                 for s in self.get_source_plurals()
-                if not s.startswith("<unused singular")
+                if not is_unused_string(s)
             )
             if update_fields and "num_words" not in update_fields:
                 update_fields.append("num_words")
@@ -380,15 +389,12 @@ class Unit(models.Model, LoggerMixin):
         if only_save:
             return
 
-        # Set source_unit for source units
+        # Set source_unit for source units, this needs to be done after
+        # having a primary key
         if self.is_source and not self.source_unit:
             self.source_unit = self
-            self.save(
-                same_content=True,
-                run_checks=False,
-                only_save=True,
-                update_fields=["source_unit"],
-            )
+            # Avoid using save() for recursion
+            Unit.objects.filter(pk=self.pk).update(source_unit=self)
 
         # Update checks if content or fuzzy flag has changed
         if run_checks:
@@ -593,7 +599,7 @@ class Unit(models.Model, LoggerMixin):
                 )
 
     def update_source_unit(
-        self, component, source, context, pos, note, location, flags
+        self, component, source, context, pos, note, location, flags, explanation
     ):
         source_unit = component.get_source(
             self.id_hash,
@@ -604,6 +610,7 @@ class Unit(models.Model, LoggerMixin):
                 "position": pos,
                 "note": note,
                 "location": location,
+                "explanation": explanation,
                 "flags": flags,
             },
         )
@@ -621,10 +628,11 @@ class Unit(models.Model, LoggerMixin):
             source_unit.position = pos
             source_unit.source_updated = True
             source_unit.location = location
+            source_unit.explanation = explanation
             source_unit.flags = flags
             source_unit.note = note
             source_unit.save(
-                update_fields=["position", "location", "flags", "note"],
+                update_fields=["position", "location", "explanation", "flags", "note"],
                 same_content=True,
                 run_checks=False,
                 only_save=same_flags,
@@ -641,6 +649,12 @@ class Unit(models.Model, LoggerMixin):
         # Get unit attributes
         try:
             location = unit.locations
+            if self.translation.component.file_format_cls.supports_explanation:
+                explanation = unit.explanation
+                source_explanation = unit.source_explanation
+            else:
+                explanation = self.explanation
+                source_explanation = "" if created else self.source_unit.explanation
             flags = unit.flags
             source = unit.source
             self.check_valid(split_plural(source))
@@ -666,7 +680,14 @@ class Unit(models.Model, LoggerMixin):
         old_source_unit = self.source_unit
         if not translation.is_source:
             self.update_source_unit(
-                component, source, context, pos, note, location, flags
+                component,
+                source,
+                context,
+                pos,
+                note,
+                location,
+                flags,
+                source_explanation,
             )
 
         # Has source/target changed
@@ -710,6 +731,7 @@ class Unit(models.Model, LoggerMixin):
         same_state = state == self.state and flags == self.flags
         same_metadata = (
             location == self.location
+            and explanation == self.explanation
             and note == self.note
             and pos == self.position
             and not self.pending
@@ -734,6 +756,7 @@ class Unit(models.Model, LoggerMixin):
         self.original_state = original_state
         self.position = pos
         self.location = location
+        self.explanation = explanation
         self.flags = flags
         self.source = source
         self.target = target
@@ -750,7 +773,7 @@ class Unit(models.Model, LoggerMixin):
             self.save(
                 same_content=True,
                 only_save=True,
-                update_fields=["location", "note", "position"],
+                update_fields=["location", "explanation", "note", "position"],
             )
             return
 
@@ -855,7 +878,7 @@ class Unit(models.Model, LoggerMixin):
         """
         plurals = self.get_source_plurals()
         singular = plurals[0]
-        if len(plurals) == 1 or not singular.startswith("<unused singular"):
+        if len(plurals) == 1 or not is_unused_string(singular):
             return singular
         return plurals[1]
 
@@ -1004,11 +1027,23 @@ class Unit(models.Model, LoggerMixin):
             Change.ACTION_AUTO,
             Change.ACTION_BULK_EDIT,
         ):
+            old_translated = self.translation.stats.translated
+
             # Update translation stats
             self.translation.invalidate_cache()
 
             # Update user stats
             change.author.profile.increase_count("translated")
+
+            # Force commiting on completing translation
+            translated = self.translation.stats.translated
+            if old_translated < translated and translated == self.translation.stats.all:
+                Change.objects.create(
+                    translation=self.translation,
+                    action=Change.ACTION_COMPLETE,
+                    user=change.user,
+                    author=change.author,
+                )
 
         # Update related source strings if working on a template
         if self.translation.is_template and self.old_unit["target"] != self.target:
@@ -1610,3 +1645,31 @@ class Unit(models.Model, LoggerMixin):
         for key in ["all_comments", "suggestions"]:
             if key in self.__dict__:
                 del self.__dict__[key]
+
+    def update_explanation(self, explanation: str, user, save: bool = True):
+        """Update glossary explanation."""
+        self.explanation = explanation
+        file_format_support = (
+            self.translation.component.file_format_cls.supports_explanation
+        )
+        if file_format_support:
+            if self.is_source:
+                units = self.unit_set.exclude(id=self.id)
+                units.update(pending=True)
+            else:
+                units = [self]
+                self.pending = True
+        if save:
+            self.save(update_fields=["explanation", "pending"], only_save=True)
+
+        if not file_format_support:
+            return
+
+        for unit in units:
+            unit.generate_change(
+                user=user,
+                author=user,
+                change_action=Change.ACTION_EXPLANATION,
+                check_new=False,
+                save=True,
+            )

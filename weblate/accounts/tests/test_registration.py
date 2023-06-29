@@ -229,7 +229,7 @@ class RegistrationTest(BaseRegistrationTest):
         # Confirm account
         response = self.client.get(url, follow=True)
         self.assertRedirects(response, reverse("login"))
-        self.assertContains(response, "the verification token probably expired")
+        self.assertContains(response, "the confirmation link probably expired")
 
     @override_settings(REGISTRATION_CAPTCHA=False, AUTH_LOCK_ATTEMPTS=5)
     def test_reset_ratelimit(self):
@@ -617,7 +617,7 @@ class RegistrationTest(BaseRegistrationTest):
             self.assertContains(response, "is already in use for another account")
             return
         if confirm:
-            self.assertContains(response, "Confirm new association")
+            self.assertContains(response, "Confirm adding user identity")
             response = self.client.post(
                 reverse("confirm"), {"password": confirm}, follow=True
             )
@@ -719,7 +719,7 @@ class CookieRegistrationTest(BaseRegistrationTest):
             del self.client.cookies["sessionid"]
 
         response = self.client.get(url, follow=True)
-        self.assertContains(response, "the verification token probably expired")
+        self.assertContains(response, "the confirmation link probably expired")
 
     @override_settings(REGISTRATION_CAPTCHA=False)
     def test_reset(self):

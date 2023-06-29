@@ -93,7 +93,7 @@ LANGUAGES = (
     ("ar", "العربية"),
     ("az", "Azərbaycan"),
     ("be", "Беларуская"),
-    ("be@latin", "Biełaruskaja"),
+    ("be-latn", "Biełaruskaja"),
     ("bg", "Български"),
     ("br", "Brezhoneg"),
     ("ca", "Català"),
@@ -143,10 +143,6 @@ SITE_ID = 1
 # If you set this to False, Django will make some optimizations so as not
 # to load the internationalization machinery.
 USE_I18N = True
-
-# If you set this to False, Django will not format dates, numbers and
-# calendars according to the current locale.
-USE_L10N = True
 
 # If you set this to False, Django will not use timezone-aware datetimes.
 USE_TZ = True
@@ -245,13 +241,12 @@ AUTH_USER_MODEL = "weblate_auth.User"
 if "WEBLATE_NO_EMAIL_AUTH" not in os.environ:
     AUTHENTICATION_BACKENDS += ("social_core.backends.email.EmailAuth",)
 
-if "WEBLATE_SOCIAL_AUTH_GITHUB_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.github.GithubOAuth2",)
-
-# Social auth backends setup
+# GitHub auth
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_GITHUB_KEY", "")
 SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_GITHUB_SECRET", "")
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
+if SOCIAL_AUTH_GITHUB_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.github.GithubOAuth2",)
 
 # GitHub org specific auth
 SOCIAL_AUTH_GITHUB_ORG_KEY = os.environ.get(
@@ -277,17 +272,35 @@ SOCIAL_AUTH_GITHUB_TEAM_SCOPE = ["user:email", "read:org"]
 if SOCIAL_AUTH_GITHUB_TEAM_ID:
     AUTHENTICATION_BACKENDS += ("social_core.backends.github.GithubTeamOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_BITBUCKET_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.bitbucket.BitbucketOAuth",)
+# GitHub Enterprise specific auth
+SOCIAL_AUTH_GITHUB_ENTERPRISE_KEY = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_KEY", ""
+)
+SOCIAL_AUTH_GITHUB_ENTERPRISE_SECRET = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_SECRET", ""
+)
+SOCIAL_AUTH_GITHUB_ENTERPRISE_URL = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_URL", ""
+)
+SOCIAL_AUTH_GITHUB_ENTERPRISE_API_URL = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_API_URL", ""
+)
+SOCIAL_AUTH_GITHUB_ENTERPRISE_SCOPE = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_SCOPE", ""
+)
+if SOCIAL_AUTH_GITHUB_ENTERPRISE_KEY:
+    AUTHENTICATION_BACKENDS += (
+        "social_core.backends.github_enterprise.GithubEnterpriseOAuth2",
+    )
+
 
 SOCIAL_AUTH_BITBUCKET_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_BITBUCKET_KEY", "")
 SOCIAL_AUTH_BITBUCKET_SECRET = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_BITBUCKET_SECRET", ""
 )
 SOCIAL_AUTH_BITBUCKET_VERIFIED_EMAILS_ONLY = True
-
-if "WEBLATE_SOCIAL_AUTH_BITBUCKET_OAUTH2_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.bitbucket.BitbucketOAuth2",)
+if SOCIAL_AUTH_BITBUCKET_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.bitbucket.BitbucketOAuth",)
 
 SOCIAL_AUTH_BITBUCKET_OAUTH2_KEY = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_BITBUCKET_OAUTH2_KEY", ""
@@ -296,17 +309,17 @@ SOCIAL_AUTH_BITBUCKET_OAUTH2_SECRET = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_BITBUCKET_OAUTH2_SECRET", ""
 )
 SOCIAL_AUTH_BITBUCKET_OAUTH2_VERIFIED_EMAILS_ONLY = True
+if SOCIAL_AUTH_BITBUCKET_OAUTH2_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.bitbucket.BitbucketOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_FACEBOOK_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.facebook.FacebookOAuth2",)
 
 SOCIAL_AUTH_FACEBOOK_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_FACEBOOK_KEY", "")
 SOCIAL_AUTH_FACEBOOK_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_FACEBOOK_SECRET", "")
 SOCIAL_AUTH_FACEBOOK_SCOPE = ["email", "public_profile"]
 SOCIAL_AUTH_FACEBOOK_PROFILE_EXTRA_PARAMS = {"fields": "id,name,email"}
+if SOCIAL_AUTH_FACEBOOK_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.facebook.FacebookOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_GOOGLE_OAUTH2_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.google.GoogleOAuth2",)
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", ""
@@ -320,30 +333,39 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = get_env_list(
 SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_EMAILS = get_env_list(
     "WEBLATE_SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_EMAILS"
 )
+if SOCIAL_AUTH_GOOGLE_OAUTH2_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.google.GoogleOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_GITLAB_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.gitlab.GitLabOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_GITLAB_API_URL" in os.environ:
-    SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("WEBLATE_SOCIAL_AUTH_GITLAB_API_URL")
+SOCIAL_AUTH_MUSICBRAINZ_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_MUSICBRAINZ_KEY", "")
+SOCIAL_AUTH_MUSICBRAINZ_SECRET = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_MUSICBRAINZ_SECRET", ""
+)
+if SOCIAL_AUTH_MUSICBRAINZ_KEY and SOCIAL_AUTH_MUSICBRAINZ_SECRET:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.musicbrainz.MusicBrainzOAuth2",)
+
 
 SOCIAL_AUTH_GITLAB_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_GITLAB_KEY", "")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_GITLAB_SECRET", "")
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
+if "WEBLATE_SOCIAL_AUTH_GITLAB_API_URL" in os.environ:
+    SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("WEBLATE_SOCIAL_AUTH_GITLAB_API_URL")
+if SOCIAL_AUTH_GITLAB_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.gitlab.GitLabOAuth2",)
 
-if "WEBLATE_SOCIAL_AUTH_AUTH0_KEY" in os.environ:
-    SOCIAL_AUTH_AUTH0_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_KEY", "")
-    SOCIAL_AUTH_AUTH0_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_SECRET", "")
-    SOCIAL_AUTH_AUTH0_DOMAIN = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_DOMAIN", "")
-    SOCIAL_AUTH_AUTH0_TITLE = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_TITLE", "")
-    SOCIAL_AUTH_AUTH0_IMAGE = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_IMAGE", "")
-    AUTHENTICATION_BACKENDS += ("social_core.backends.auth0.Auth0OAuth2",)
-    SOCIAL_AUTH_AUTH0_SCOPE = ["openid", "profile", "email"]
-
+SOCIAL_AUTH_AUTH0_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_KEY", "")
+SOCIAL_AUTH_AUTH0_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_SECRET", "")
+SOCIAL_AUTH_AUTH0_DOMAIN = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_DOMAIN", "")
+SOCIAL_AUTH_AUTH0_TITLE = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_TITLE", "")
+SOCIAL_AUTH_AUTH0_IMAGE = os.environ.get("WEBLATE_SOCIAL_AUTH_AUTH0_IMAGE", "")
+SOCIAL_AUTH_AUTH0_SCOPE = ["openid", "profile", "email"]
 if "WEBLATE_SOCIAL_AUTH_AUTH0_AUTH_EXTRA_ARGUMENTS" in os.environ:
     SOCIAL_AUTH_AUTH0_AUTH_EXTRA_ARGUMENTS = get_env_map(
         "WEBLATE_SOCIAL_AUTH_AUTH0_AUTH_EXTRA_ARGUMENTS"
     )
+if SOCIAL_AUTH_AUTH0_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.auth0.Auth0OAuth2",)
+
 
 # SAML
 if "WEBLATE_SAML_IDP_URL" in os.environ:
@@ -360,9 +382,15 @@ if "WEBLATE_SAML_IDP_URL" in os.environ:
             "entity_id": os.environ.get("WEBLATE_SAML_IDP_ENTITY_ID", ""),
             "url": os.environ.get("WEBLATE_SAML_IDP_URL", ""),
             "x509cert": os.environ.get("WEBLATE_SAML_IDP_X509CERT", ""),
-            "attr_name": "full_name",
-            "attr_username": "username",
-            "attr_email": "email",
+            "attr_name": os.environ.get("WEBLATE_SAML_ID_ATTR_NAME", "full_name"),
+            "attr_username": os.environ.get(
+                "WEBLATE_SAML_ID_ATTR_USERNAME", "username"
+            ),
+            "attr_email": os.environ.get("WEBLATE_SAML_ID_ATTR_EMAIL", "email"),
+            "attr_user_permanent_id": os.environ.get(
+                "WEBLATE_SAML_ID_ATTR_USER_PERMANENT_ID",
+                "urn:oid:0.9.2342.19200300.100.1.1",
+            ),
         }
     }
     SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {
@@ -380,22 +408,16 @@ if "WEBLATE_SAML_IDP_URL" in os.environ:
     SOCIAL_AUTH_SAML_TITLE = os.environ.get("WEBLATE_SAML_IDP_TITLE", "")
 
 # Azure
-if "WEBLATE_SOCIAL_AUTH_AZUREAD_OAUTH2_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += ("social_core.backends.azuread.AzureADOAuth2",)
-
 SOCIAL_AUTH_AZUREAD_OAUTH2_KEY = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_AZUREAD_OAUTH2_KEY", ""
 )
 SOCIAL_AUTH_AZUREAD_OAUTH2_SECRET = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_AZUREAD_OAUTH2_SECRET", ""
 )
+if SOCIAL_AUTH_AZUREAD_OAUTH2_KEY:
+    AUTHENTICATION_BACKENDS += ("social_core.backends.azuread.AzureADOAuth2",)
 
 # Azure AD Tenant
-if "WEBLATE_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY" in os.environ:
-    AUTHENTICATION_BACKENDS += (
-        "social_core.backends.azuread_tenant.AzureADTenantOAuth2",
-    )
-
 SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY", ""
 )
@@ -405,33 +427,31 @@ SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_SECRET = os.environ.get(
 SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_TENANT_ID = os.environ.get(
     "WEBLATE_SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_TENANT_ID", ""
 )
+if SOCIAL_AUTH_AZUREAD_TENANT_OAUTH2_KEY:
+    AUTHENTICATION_BACKENDS += (
+        "social_core.backends.azuread_tenant.AzureADTenantOAuth2",
+    )
 
 # Keycloak
-if "WEBLATE_SOCIAL_AUTH_KEYCLOAK_KEY" in os.environ:
+SOCIAL_AUTH_KEYCLOAK_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_KEYCLOAK_KEY", "")
+SOCIAL_AUTH_KEYCLOAK_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_KEYCLOAK_SECRET", "")
+SOCIAL_AUTH_KEYCLOAK_PUBLIC_KEY = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_KEYCLOAK_PUBLIC_KEY", ""
+)
+SOCIAL_AUTH_KEYCLOAK_AUTHORIZATION_URL = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_KEYCLOAK_AUTHORIZATION_URL", ""
+)
+SOCIAL_AUTH_KEYCLOAK_ALGORITHM = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_KEYCLOAK_ALGORITHM", "RS256"
+)
+SOCIAL_AUTH_KEYCLOAK_ACCESS_TOKEN_URL = os.environ.get(
+    "WEBLATE_SOCIAL_AUTH_KEYCLOAK_ACCESS_TOKEN_URL", ""
+)
+SOCIAL_AUTH_KEYCLOAK_IMAGE = os.environ.get("WEBLATE_SOCIAL_AUTH_KEYCLOAK_IMAGE", "")
+SOCIAL_AUTH_KEYCLOAK_TITLE = os.environ.get("WEBLATE_SOCIAL_AUTH_KEYCLOAK_TITLE", "")
+SOCIAL_AUTH_KEYCLOAK_ID_KEY = "email"
+if SOCIAL_AUTH_KEYCLOAK_KEY:
     AUTHENTICATION_BACKENDS += ("social_core.backends.keycloak.KeycloakOAuth2",)
-    SOCIAL_AUTH_KEYCLOAK_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_KEYCLOAK_KEY", "")
-    SOCIAL_AUTH_KEYCLOAK_SECRET = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_SECRET", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_PUBLIC_KEY = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_PUBLIC_KEY", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_AUTHORIZATION_URL = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_AUTHORIZATION_URL", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_ALGORITHM = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_ALGORITHM", "RS256"
-    )
-    SOCIAL_AUTH_KEYCLOAK_ACCESS_TOKEN_URL = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_ACCESS_TOKEN_URL", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_IMAGE = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_IMAGE", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_TITLE = os.environ.get(
-        "WEBLATE_SOCIAL_AUTH_KEYCLOAK_TITLE", ""
-    )
-    SOCIAL_AUTH_KEYCLOAK_ID_KEY = "email"
 
 # Linux distros
 if "WEBLATE_SOCIAL_AUTH_FEDORA" in os.environ:
@@ -445,10 +465,10 @@ if "WEBLATE_SOCIAL_AUTH_OPENINFRA" in os.environ:
     AUTHENTICATION_BACKENDS += ("social_core.backends.openinfra.OpenInfraOpenId",)
 
 # Slack
-if "WEBLATE_SOCIAL_AUTH_SLACK_KEY" in os.environ:
+SOCIAL_AUTH_SLACK_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_SLACK_KEY", "")
+SOCIAL_AUTH_SLACK_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_SLACK_SECRET", "")
+if SOCIAL_AUTH_SLACK_KEY:
     AUTHENTICATION_BACKENDS += ("social_core.backends.slack.SlackOAuth2",)
-    SOCIAL_AUTH_SLACK_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_SLACK_KEY", "")
-    SOCIAL_AUTH_SLACK_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_SLACK_SECRET", "")
 
 # Generic OpenID Connect
 if "WEBLATE_SOCIAL_AUTH_OIDC_OIDC_ENDPOINT" in os.environ:
@@ -466,16 +486,12 @@ if "WEBLATE_SOCIAL_AUTH_OIDC_OIDC_ENDPOINT" in os.environ:
         ]
 
 # Gitea
-if "WEBLATE_SOCIAL_AUTH_GITEA_KEY" in os.environ:
+SOCIAL_AUTH_GITEA_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_GITEA_KEY", "")
+SOCIAL_AUTH_GITEA_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_GITEA_SECRET", "")
+if "WEBLATE_SOCIAL_AUTH_GITEA_API_URL" in os.environ:
+    SOCIAL_AUTH_GITEA_API_URL = os.environ.get("WEBLATE_SOCIAL_AUTH_GITEA_API_URL", "")
+if SOCIAL_AUTH_GITEA_KEY:
     AUTHENTICATION_BACKENDS += ("social_core.backends.gitea.GiteaOAuth2",)
-
-    if "WEBLATE_SOCIAL_AUTH_GITEA_API_URL" in os.environ:
-        SOCIAL_AUTH_GITEA_API_URL = os.environ.get(
-            "WEBLATE_SOCIAL_AUTH_GITEA_API_URL", ""
-        )
-
-    SOCIAL_AUTH_GITEA_KEY = os.environ.get("WEBLATE_SOCIAL_AUTH_GITEA_KEY", "")
-    SOCIAL_AUTH_GITEA_SECRET = os.environ.get("WEBLATE_SOCIAL_AUTH_GITEA_SECRET", "")
 
 # https://docs.weblate.org/en/latest/admin/auth.html#ldap-authentication
 if "WEBLATE_AUTH_LDAP_SERVER_URI" in os.environ:
@@ -1055,6 +1071,7 @@ CHECK_LIST = [
     "weblate.checks.consistency.PluralsCheck",
     "weblate.checks.consistency.SamePluralsCheck",
     "weblate.checks.consistency.ConsistencyCheck",
+    "weblate.checks.consistency.ReusedCheck",
     "weblate.checks.consistency.TranslatedCheck",
     "weblate.checks.chars.EscapedNewlineCountingCheck",
     "weblate.checks.chars.NewLineCountCheck",
@@ -1117,6 +1134,7 @@ WEBLATE_ADDONS = [
     "weblate.addons.generate.GenerateFileAddon",
     "weblate.addons.generate.PseudolocaleAddon",
     "weblate.addons.generate.PrefillAddon",
+    "weblate.addons.generate.FillReadOnlyAddon",
     "weblate.addons.json.JSONCustomizeAddon",
     "weblate.addons.xml.XMLCustomizeAddon",
     "weblate.addons.properties.PropertiesSortAddon",
@@ -1216,10 +1234,7 @@ FONTS_CDN_URL = None
 
 # Django compressor offline mode
 COMPRESS_OFFLINE = True
-COMPRESS_OFFLINE_CONTEXT = [
-    {"fonts_cdn_url": FONTS_CDN_URL, "STATIC_URL": STATIC_URL, "LANGUAGE_BIDI": True},
-    {"fonts_cdn_url": FONTS_CDN_URL, "STATIC_URL": STATIC_URL, "LANGUAGE_BIDI": False},
-]
+COMPRESS_OFFLINE_CONTEXT = "weblate.utils.compress.offline_context"
 
 # Require login for all URLs
 if REQUIRE_LOGIN:
@@ -1389,6 +1404,7 @@ GOOGLE_ANALYTICS_ID = os.environ.get("WEBLATE_GOOGLE_ANALYTICS_ID")
 SENTRY_DSN = os.environ.get("SENTRY_DSN")
 SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", SITE_DOMAIN)
 SENTRY_TRACES_SAMPLE_RATE = get_env_float("SENTRY_TRACES_SAMPLE_RATE")
+SENTRY_PROFILES_SAMPLE_RATE = get_env_float("SENTRY_PROFILES_SAMPLE_RATE")
 SENTRY_TOKEN = os.environ.get("SENTRY_TOKEN")
 SENTRY_SEND_PII = get_env_bool("SENTRY_SEND_PII", True)
 AKISMET_API_KEY = os.environ.get("WEBLATE_AKISMET_API_KEY")

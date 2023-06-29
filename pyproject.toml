@@ -2,24 +2,65 @@
 # Minimum requirements for the build system to execute.
 requires = ["setuptools", "wheel", "translate-toolkit"]  # PEP 508 specifications.
 
-[project]
-requires-python = ">=3.7"
-
 [tool.black]
 target-version = ['py37']
 
 [tool.codespell]
 skip = '*.po,*.pot,*.json,*.tmx,*.tbx,yarn.lock,known_hosts'
 
-[tool.isort]
-profile = "black"
+[tool.pylint.main]
+disable = [
+  "C",
+  "W",
+  "R",
+  "I",
+  "no-member",
+  "not-a-mapping",
+  "unsubscriptable-object",
+  "unsupported-membership-test",
+  "not-an-iterable",
+  "unsupported-binary-operation",
+  "c-extension-no-member",
+  "not-callable",
+  "invalid-str-returned",
+  "raising-bad-type",
+  "no-name-in-module",
+  "import-error"
+]
+extension-pkg-whitelist = ["siphashc"]
+ignore = [
+  "migrations",
+  "settings.py",
+  "settings_test.py",
+  ".git",
+  "test-repos",
+  "repos",
+  "build",
+  ".venv"
+]
 
 [tool.ruff]
 format = "github"
+# CONFIG - intentional configuration
+# TODO - needs decision whether intention, add noqa tags or fix
+# WONTFIX - not fixable in current codebase, might be better to go for noqa
 ignore = [
-  "D10",  # TODO: we are missing many docstrings
+  "COM",  # CONFIG: No trailing commas
+  "PT",  # CONFIG: Not using pytest
   "D203",  # CONFIG: incompatible with D211
   "D212",  # CONFIG: incompatible with D213
+  "FIX002",  # CONFIG: we use TODO
+  "TD002",  # CONFIG: no detailed TODO documentation is required
+  "TD003",  # CONFIG: no detailed TODO documentation is required
+  "S",  # TODO: annotate possible security risks
+  "EM",  # TODO: Exception strings
+  "PTH",  # TODO: Not using pathlib
+  "FBT",  # TODO: Boolean in function definition
+  "BLE001",  # WONTFIX: Do not catch blind exception: `Exception`, third-party modules do not have defined exceptions
+  "ARG001",  # TODO: Unused function argument (mostly for API compatibility)
+  "ARG002",  # TODO: Unused method argument (mostly for API compatibility)
+  "ANN",  # TODO: we are missing many annotations
+  "D10",  # TODO: we are missing many docstrings
   "D401",  # TODO: many strings need rephrasing
   "TRY003",  # WONTFIX: Avoid specifying long messages outside the exception class
   "TRY200",  # TODO: Use `raise from` to specify exception cause
@@ -40,40 +81,11 @@ ignore = [
   "SLF001"  # TODO: Private member accessed (might need noqa tags)
 ]
 select = [
-  "E",
-  "F",
-  "B",
-  "T10",
-  "A",
-  "C4",
-  "C90",
-  "YTT",
-  "DJ",
-  "UP",
-  "D",
-  "PD",
-  "PGH",
-  "PL",
-  "TRY",
-  "RUF",
-  "ERA",
-  "ICN",
-  "ISC",
-  "EXE",
-  "INP",
-  "PIE",
-  "G",
-  "PYI",
-  "Q",
-  "SIM",
-  "TID",
-  "RSE",
-  "T20",
-  "RET",
-  "SLF",
-  "N"
+  "ALL"
 ]
 target-version = "py37"
+
+[tool.ruff.isort]
 
 [tool.ruff.mccabe]
 max-complexity = 16

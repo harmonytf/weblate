@@ -15,7 +15,7 @@ from urllib.parse import quote
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils.functional import cached_property
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 from requests.exceptions import HTTPError
 
 from weblate.checks.utils import highlight_string
@@ -91,11 +91,13 @@ class MachineTranslation:
         try:
             self.download_languages()
         except Exception as error:
-            raise ValidationError(_("Failed to fetch supported languages: %s") % error)
+            raise ValidationError(
+                gettext("Failed to fetch supported languages: %s") % error
+            )
         try:
             self.download_translations(*self.validate_payload)
         except Exception as error:
-            raise ValidationError(_("Failed to fetch translation: %s") % error)
+            raise ValidationError(gettext("Failed to fetch translation: %s") % error)
 
     @property
     def api_base_url(self):
@@ -196,10 +198,6 @@ class MachineTranslation:
         if code in self.language_map:
             return self.language_map[code]
         return code
-
-    def convert_language(self, language):
-        """Convert language to service specific object."""
-        return self.map_language_code(language.code)
 
     def report_error(self, message):
         """Wrapper for handling error situations."""
@@ -319,21 +317,20 @@ class MachineTranslation:
                     text = re.sub(self.make_re_placeholder(source), target, text)
                 result[key] = self.unescape_text(text)
 
-    def get_variants(self, language):
-        code = self.convert_language(language)
-        yield code
-        if not isinstance(code, str):
-            return
+    def get_language_possibilities(self, language):
+        code = language.code
+        yield self.map_language_code(code)
         code = code.replace("-", "_")
-        if "_" in code:
-            yield code.split("_")[0]
+        while "_" in code:
+            code = code.rsplit("_", 1)[0]
+            yield self.map_language_code(code)
 
     def get_languages(self, source_language, target_language):
         if source_language == target_language and not self.same_languages:
             raise UnsupportedLanguage("Same languages")
 
-        for source in self.get_variants(source_language):
-            for target in self.get_variants(target_language):
+        for source in self.get_language_possibilities(source_language):
+            for target in self.get_language_possibilities(target_language):
                 if self.is_supported(source, target):
                     return source, target
 
@@ -484,3 +481,20 @@ class MachineTranslation:
                         continue
                     quality[i] = item["quality"]
                     translation[i] = item["text"]
+
+
+class InternalMachineTranslation(MachineTranslation):
+    do_cleanup = False
+    accounting_key = "internal"
+    cache_translations = False
+
+    def is_supported(self, source, language):
+        """Any language is supported."""
+        return True
+
+    def is_rate_limited(self):
+        """Disable rate limiting."""
+        return False
+
+    def get_language_possibilities(self, language):
+        yield get_machinery_language(language)

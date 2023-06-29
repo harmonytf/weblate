@@ -62,7 +62,7 @@ work, but is not as well tested as single version upgrades.
         cd weblate-src
         git pull
         # Update Weblate inside your virtualenv
-        . ~/weblate-env/bin/pip install -e .
+        . ~/weblate-env/bin/pip install -e '.[all]'
         # Install dependencies directly when not using virtualenv
         pip install --upgrade -r requirements.txt
         # Install optional dependencies directly when not using virtualenv
@@ -206,7 +206,7 @@ Notable configuration or dependencies changes:
 
 .. versionchanged:: 4.4.1
 
-   * :ref:`mono_gettext` now uses both ``msgid`` and ``msgctxt`` when present. This will change identification of translation strings in such files breaking links to Weblate extended data such as screenshots or review states. Please make sure you commit pending changes in such files prior upgrading and it is recommended to force loading of affected component using :djadmin:`loadpo`.
+   * :ref:`mono_gettext` now uses both ``msgid`` and ``msgctxt`` when present. This will change identification of translation strings in such files breaking links to Weblate extended data such as screenshots or review states. Please make sure you commit pending changes in such files prior upgrading and it is recommended to force loading of affected component using :wladmin:`loadpo`.
    * Increased minimal required version of translate-toolkit to address several file format issues.
 
 .. seealso:: :ref:`generic-upgrade-instructions`
@@ -392,6 +392,29 @@ Please follow :ref:`generic-upgrade-instructions` in order to perform update.
   :file:`weblate/metrics/migrations/*.py` from Weblate 4.17 to 4.16 and start
   the migration in the background. Once it is completed, perform full upgrade
   as ususal.
+* Docker container now requires PostgreSQL 12 or newer, please see
+  :ref:`docker-postgres-upgrade` for upgrade instructions. Weblate itself
+  supports older versions as well, when appropriate Django version is installed.
+
+.. warning::
+
+   Migration on MySQL will try to load all metrics into memory due to
+   limitation of the Python database driver. You might need to prune metrics
+   prior to migration if you want to continue using MySQL. Please consider
+   switching to PostgreSQL, see :ref:`database-migration`.
+
+.. seealso:: :ref:`generic-upgrade-instructions`
+
+Upgrade from 4.17 to 4.18
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+* Dropped support for PostgreSQL 10, 11, MySQL 5.7 and MariaDB 10.2, 10.3.
+* Dropped support for Python 3.7.
+* The :ref:`fluent` format changed identification of some strings, you might
+  need to force reloading of the translation files to see the changes.
+* There are several changes in :file:`settings_example.py`, most notable is change in ``COMPRESS_OFFLINE_CONTEXT``, please adjust your settings accordingly.
 
 .. seealso:: :ref:`generic-upgrade-instructions`
 
@@ -542,4 +565,4 @@ Migrating from Pootle
 
 As Weblate was originally written as replacement from Pootle, it is supported
 to migrate user accounts from Pootle. You can dump the users from Pootle and
-import them using :djadmin:`importusers`.
+import them using :wladmin:`importusers`.

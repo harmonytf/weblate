@@ -13,7 +13,7 @@ Installation
 ------------
 
 The following examples assume you have a working Docker environment, with
-``docker-compose`` installed. Please check the Docker documentation for instructions.
+``docker-compose-plugin`` installed. Please check the Docker documentation for instructions.
 
 1. Clone the weblate-docker repo:
 
@@ -54,7 +54,7 @@ The following examples assume you have a working Docker environment, with
 
    .. code-block:: sh
 
-        docker-compose up
+        docker compose up
 
 Enjoy your Weblate deployment, it's accessible on port 80 of the ``weblate`` container.
 
@@ -65,28 +65,49 @@ Enjoy your Weblate deployment, it's accessible on port 80 of the ``weblate`` con
 
 .. seealso:: :ref:`invoke-manage`
 
-Choosing Docker hub tag
------------------------
+Choosing Docker image registry
+------------------------------
 
-You can use following tags on Docker hub, see https://hub.docker.com/r/weblate/weblate/tags/ for full list of available ones.
+Weblate containers are published to following registries:
 
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-| Tag name                | Description                                                                                                | Use case                                             |
-+=========================+============================================================================================================+======================================================+
-|``latest``               | Weblate stable release, matches latest tagged release                                                      | Rolling updates in a production environment          |
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-|``<VERSION>-<PATCH>``    | Weblate stable release                                                                                     | Well defined deploy in a production environment      |
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-|``edge``                 | Weblate stable release with development changes in the Docker container (for example updated dependencies) | Rolling updates in a staging environment             |
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-|``edge-<DATE>-<SHA>``    | Weblate stable release with development changes in the Docker container (for example updated dependencies) | Well defined deploy in a staging environment         |
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-|``bleeding``             | Development version Weblate from Git                                                                       | Rollling updates to test upcoming Weblate features   |
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
-|``bleeding-<DATE>-<SHA>``| Development version Weblate from Git                                                                       | Well defined deploy to test upcoming Weblate features|
-+-------------------------+------------------------------------------------------------------------------------------------------------+------------------------------------------------------+
+* Docker Hub, see https://hub.docker.com/r/weblate/weblate
+* GitHub Packages registry, see https://github.com/WeblateOrg/docker/pkgs/container/weblate
+
+.. note::
+
+   All examples currently fetch images from Docker Hub, please adjust the
+   configuration accordingly to use a different registry.
+
+Choosing Docker image tag
+-------------------------
+
+Please choose a tag that matches your environment and expectations:
+
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+| Tag name                | Description                                                                                                | Use case                                                                    |
++=========================+============================================================================================================+=============================================================================+
+|``latest``               | Weblate stable release, matches latest tagged release                                                      | Rolling updates in a production environment                                 |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``<MAJOR>``              | Weblate stable release                                                                                     | Rolling updates within a major version in a production environment          |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``<MAJOR>.<MINOR>``      | Weblate stable release                                                                                     | Rolling updates within a minor version in a production environment          |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``<VERSION>.<PATCH>``    | Weblate stable release                                                                                     | Well defined deploy in a production environment                             |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``edge``                 | Weblate stable release with development changes in the Docker container (for example updated dependencies) | Rolling updates in a staging environment                                    |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``edge-<DATE>-<SHA>``    | Weblate stable release with development changes in the Docker container (for example updated dependencies) | Well defined deploy in a staging environment                                |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``bleeding``             | Development version Weblate from Git                                                                       | Rollling updates to test upcoming Weblate features                          |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
+|``bleeding-<DATE>-<SHA>``| Development version Weblate from Git                                                                       | Well defined deploy to test upcoming Weblate features                       |
++-------------------------+------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------+
 
 Every image is tested by our CI before it gets published, so even the `bleeding` version should be quite safe to use.
+
+Full list of published tags can be found at `GitHub Packages`_
+
+.. _GitHub Packages: https://github.com/WeblateOrg/docker/pkgs/container/weblate/versions?filters%5Bversion_type%5D=tagged
 
 .. _docker-ssl:
 
@@ -173,13 +194,13 @@ a :file:`docker-compose-https.override.yml` file with your settings:
         environment:
           DOMAINS: 'weblate.example.com -> http://weblate:8080'
 
-Whenever invoking :program:`docker-compose` you need to pass both files to it,
+Whenever invoking :program:`docker compose` you need to pass both files to it,
 and then do:
 
 .. code-block:: console
 
-    docker-compose -f docker-compose-https.yml -f docker-compose-https.override.yml build
-    docker-compose -f docker-compose-https.yml -f docker-compose-https.override.yml up
+    docker compose -f docker-compose-https.yml -f docker-compose-https.override.yml build
+    docker compose -f docker-compose-https.yml -f docker-compose-https.override.yml up
 
 .. _upgrading-docker:
 
@@ -190,11 +211,11 @@ Usually it is good idea to only update the Weblate container and keep the Postgr
 container at the version you have, as upgrading PostgreSQL is quite painful and in most
 cases does not bring many benefits.
 
-.. versionchanged:: 4.10-1
+.. versionchanged:: 4.17-1
 
-   Since Weblate 4.10-1, the Docker container uses Django 4.0 what requires
-   PostgreSQL 10 or newer, please upgrade it prior to upgrading Weblate.
-   See :ref:`upgrade-4.10` and :ref:`docker-postgres-upgrade`.
+   Since Weblate 4.17-1, the Docker container uses Django 4.2 what requires
+   PostgreSQL 12 or newer, please upgrade it prior to upgrading Weblate.
+   See :ref:`docker-postgres-upgrade`.
 
 You can do this by sticking with the existing docker-compose and just pull
 the latest images and then restart:
@@ -202,13 +223,13 @@ the latest images and then restart:
 .. code-block:: sh
 
    # Fetch latest versions of the images
-   docker-compose pull
+   docker compose pull
    # Stop and destroy the containers
-   docker-compose down
+   docker compose down
    # Spawn new containers in the background
-   docker-compose up -d
+   docker compose up -d
    # Follow the logs during upgrade
-   docker-compose logs -f
+   docker compose logs -f
 
 The Weblate database should be automatically migrated on first startup, and there
 should be no need for additional manual actions.
@@ -240,25 +261,25 @@ of upgrading.
 
    .. code-block:: shell
 
-      docker-compose stop weblate cache
+      docker compose stop weblate cache
 
 2. Backup the database:
 
    .. code-block:: shell
 
-      docker-compose exec database pg_dumpall --clean --username weblate > backup.sql
+      docker compose exec database pg_dumpall --clean --if-exists --username weblate > backup.sql
 
 3. Stop the database container:
 
    .. code-block:: shell
 
-      docker-compose stop database
+      docker compose stop database
 
 4. Remove the PostgreSQL volume:
 
    .. code-block:: shell
 
-      docker-compose rm -v database
+      docker compose rm -v database
       docker volume remove weblate-docker_postgres-data
 
 5. Adjust :file:`docker-compose.yml` to use new PostgreSQL version.
@@ -267,25 +288,33 @@ of upgrading.
 
    .. code-block:: shell
 
-      docker-compose up -d database
+      docker compose up -d database
 
 7. Restore the database from the backup:
 
    .. code-block:: shell
 
-      cat backup.sql | docker-compose exec -T database psql --username weblate --dbname postgres
+      cat backup.sql | docker compose exec -T database psql --username weblate --dbname weblate
+
+   .. hint::
+
+      Please check that the database name matches :envvar:`POSTGRES_DATABASE`.
 
 8. (Optional) Update password for the Weblate user. This might be needed when migrating to PostgreSQL 14 or 15 as way of storing passwords has been changed:
 
    .. code-block:: shell
 
-      docker-compose exec -T database psql --username weblate --dbname postgres -c "ALTER USER weblate WITH PASSWORD 'weblate'"
+      docker compose exec -T database psql --username weblate --dbname weblate -c "ALTER USER weblate WITH PASSWORD 'weblate'"
+
+   .. hint::
+
+      Please check that the database name matches :envvar:`POSTGRES_DATABASE`.
 
 9. Start all remaining containers:
 
    .. code-block:: shell
 
-      docker-compose up -d
+      docker compose up -d
 
 .. _docker-admin-login:
 
@@ -393,7 +422,9 @@ Generic settings
 
 .. envvar:: WEBLATE_LOGLEVEL
 
-    Configures the logging verbosity.
+    Configures the logging verbosity. Set this to ``DEBUG`` to get more detailed logs.
+
+    Defaults to ``INFO`` when :envvar:`WEBLATE_DEBUG` is turned off, ``DEBUG`` is used when debug mode is turned on.
 
 .. envvar:: WEBLATE_LOGLEVEL_DATABASE
 
@@ -1059,6 +1090,17 @@ GitHub
 
     Enables :ref:`github_auth`.
 
+GitHub Enterprise Edition
++++++++++++++++++++++++++
+
+.. envvar:: WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_KEY
+.. envvar:: WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_SECRET
+.. envvar:: WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_URL
+.. envvar:: WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_API_URL
+.. envvar:: WEBLATE_SOCIAL_AUTH_GITHUB_ENTERPRISE_SCOPE
+
+    Enables :ref:`github_ee_auth`.
+
 Bitbucket
 +++++++++
 
@@ -1190,6 +1232,15 @@ In case you want to use own keys, place the certificate and private key in
 .. envvar:: WEBLATE_SAML_IDP_TITLE
 
     SAML Identity Provider settings, see :ref:`saml-auth`.
+
+.. envvar:: WEBLATE_SAML_ID_ATTR_NAME
+.. envvar:: WEBLATE_SAML_ID_ATTR_USERNAME
+.. envvar:: WEBLATE_SAML_ID_ATTR_EMAIL
+.. envvar:: WEBLATE_SAML_ID_ATTR_USER_PERMANENT_ID
+
+   .. versionadded:: 4.18
+
+   SAML attributes mapping.
 
 
 Other authentication settings
@@ -1498,7 +1549,29 @@ To enable support for Sentry, set following:
 
 .. envvar:: SENTRY_ENVIRONMENT
 
-    Your Sentry Environment (optional).
+    Your Sentry Environment (optional), defaults to :envvar:`WEBLATE_SITE_DOMAIN`.
+
+.. envvar:: SENTRY_TRACES_SAMPLE_RATE
+
+   Configure sampling rate for performance monitoring. Set to 1 to trace all events, 0 (the default) disables tracing.
+
+   **Example:**
+
+   .. code-block:: yaml
+
+       environment:
+         SENTRY_TRACES_SAMPLE_RATE: 0.5
+
+.. envvar:: SENTRY_PROFILES_SAMPLE_RATE
+
+   Configure sampling rate for profiling monitoring. Set to 1 to trace all events, 0 (the default) disables tracing.
+
+   **Example:**
+
+   .. code-block:: yaml
+
+       environment:
+         SENTRY_PROFILES_SAMPLE_RATE: 0.5
 
 Localization CDN
 ~~~~~~~~~~~~~~~~
@@ -1673,6 +1746,14 @@ as that is user used inside the container.
 
    `Docker volumes documentation <https://docs.docker.com/storage/volumes/>`_
 
+Read-only root filesystem
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 4.18
+
+When running the container with a read-only root filesytem, two additional
+`tmpfs` volumes are required - :file:`/tmp` and :file:`/run`.
+
 
 .. _docker-custom-config:
 
@@ -1811,7 +1892,7 @@ it as separate volume to the Docker container, for example:
 Configuring PostgreSQL server
 -----------------------------
 
-The PostgtreSQL container uses default PostgreSQL configuration and it won't
+The PostgreSQL container uses default PostgreSQL configuration and it won't
 effectively utilize your CPU cores or memory. It is recommended to customize
 the configuration to improve the performance.
 
@@ -1829,11 +1910,11 @@ To check the services status use:
 
 .. code-block:: sh
 
-    docker-compose exec --user weblate weblate supervisorctl status
+    docker compose exec --user weblate weblate supervisorctl status
 
 There are individual services for each Celery queue (see :ref:`celery` for
 details). You can stop processing some tasks by stopping the appropriate worker:
 
 .. code-block:: sh
 
-    docker-compose exec --user weblate weblate supervisorctl stop celery-translate
+    docker compose exec --user weblate weblate supervisorctl stop celery-translate

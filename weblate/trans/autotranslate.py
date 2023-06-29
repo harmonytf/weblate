@@ -8,11 +8,12 @@ from celery import current_task
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models.functions import MD5
 
 from weblate.machinery.models import MACHINERY
 from weblate.trans.models import Change, Component, Suggestion, Unit
 from weblate.trans.util import split_plural
-from weblate.utils.state import STATE_FUZZY, STATE_TRANSLATED
+from weblate.utils.state import STATE_APPROVED, STATE_FUZZY, STATE_TRANSLATED
 
 
 class AutoTranslate:
@@ -31,7 +32,11 @@ class AutoTranslate:
         self.mode = mode
         self.updated = 0
         self.progress_steps = 0
-        self.target_state = STATE_FUZZY if mode == "fuzzy" else STATE_TRANSLATED
+        self.target_state = STATE_TRANSLATED
+        if mode == "fuzzy":
+            self.target_state = STATE_FUZZY
+        elif mode == "approved":
+            self.target_state = STATE_APPROVED
         self.component_wide = component_wide
 
     def get_units(self, filter_mode=True):
@@ -87,9 +92,13 @@ class AutoTranslate:
 
             if (
                 not component.project.contribute_shared_tm
-                and not component.project != self.translation.component.project
-            ) or component.source_language != source_language:
-                raise PermissionDenied
+                and component.project != self.translation.component.project
+            ):
+                raise PermissionDenied(
+                    "Project has disabled contribution to shared translation memory."
+                )
+            if component.source_language != source_language:
+                raise PermissionDenied("Component have different source languages.")
             kwargs["translation__component"] = component
         else:
             project = self.translation.component.project
@@ -111,7 +120,9 @@ class AutoTranslate:
         translations = {
             source: split_plural(target)
             for source, state, target in sources.filter(
-                source__in=self.get_units().values("source")
+                source__md5__in=self.get_units()
+                .annotate(source__md5=MD5("source"))
+                .values("source__md5")
             ).values_list("source", "state", "target")
         }
 

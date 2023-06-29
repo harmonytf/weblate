@@ -4,10 +4,10 @@
 # ⵣⵓⵀⵉⵔ ⴰⵎⴰⵣⵉⵖ ZOUHIR DEHBI <zouhirdehbi56@gmail.com>, 2023.
 msgid ""
 msgstr ""
-"Project-Id-Version: Weblate 4.17\n"
+"Project-Id-Version: Weblate 4.18\n"
 "Report-Msgid-Bugs-To: https://github.com/WeblateOrg/weblate/issues\n"
-"POT-Creation-Date: 2023-04-14 14:37+0000\n"
-"PO-Revision-Date: 2023-02-11 14:03+0000\n"
+"POT-Creation-Date: 2023-06-15 06:54+0000\n"
+"PO-Revision-Date: 2023-05-12 06:56+0000\n"
 "Last-Translator: ⵣⵓⵀⵉⵔ ⴰⵎⴰⵣⵉⵖ ZOUHIR DEHBI <zouhirdehbi56@gmail.com>\n"
 "Language-Team: Tamazight (Standard Moroccan) <https://hosted.weblate.org/"
 "projects/weblate/javascript/zgh/>\n"
@@ -16,7 +16,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.16-dev\n"
+"X-Generator: Weblate 4.18-dev\n"
 
 #: weblate/static/editor/base.js:94
 msgid "Please select target plural by clicking."
@@ -65,15 +65,15 @@ msgstr "ⴰⴷⵔ ⴳ Cmd+I ⴷ %s ⵃⵎⴰ ⴰⴷ ⵉⵜⵜⵡⴰⴽⴽⵙ."
 msgid "Press Ctrl+I then %s to dismiss this."
 msgstr "ⴰⴷⵔ ⴳ Ctrl+I ⴷ %s ⵃⵎⴰ ⴰⴷ ⵉⵜⵜⵡⴰⴽⴽⵙ."
 
-#: weblate/static/editor/full.js:590
+#: weblate/static/editor/full.js:591
 msgid "Clone to translation"
-msgstr ""
+msgstr "ⵙⵍⵖ ⴳ ⵓⵙⵓⵖⵍ"
 
-#: weblate/static/editor/full.js:596
+#: weblate/static/editor/full.js:597
 msgid "Accept"
-msgstr ""
+msgstr "ⵉⵔⵉ"
 
-#: weblate/static/editor/full.js:607
+#: weblate/static/editor/full.js:608
 msgid "Delete entry"
 msgstr "ⴽⴽⵙ ⵜⵓⴷⵉⴼⵉⵏ"
 
@@ -93,264 +93,47 @@ msgstr ""
 msgid "Sort this column"
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:484
+#: weblate/static/loader-bootstrap.js:487
 msgid "Error while loading page:"
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:645
-#: weblate/static/loader-bootstrap.js:652
-msgid "Sunday"
-msgstr "ⴰⵙⴰⵎⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:646
-msgid "Monday"
-msgstr "ⴰⵢⵏⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:647
-msgid "Tuesday"
-msgstr "ⴰⵙⵉⵏⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:648
-msgid "Wednesday"
-msgstr "ⴰⴽⵕⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:649
-msgid "Thursday"
-msgstr "ⴰⴽⵡⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:650
-msgid "Friday"
-msgstr "ⴰⵙⵉⵎⵡⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:651
-msgid "Saturday"
-msgstr "ⴰⵙⵉⴹⵢⴰⵙ"
-
-#: weblate/static/loader-bootstrap.js:655
-#: weblate/static/loader-bootstrap.js:662
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sun"
-msgstr "ⴰⵙⴰ"
-
-#: weblate/static/loader-bootstrap.js:656
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Mon"
-msgstr "ⴰⵢⵏ"
-
-#: weblate/static/loader-bootstrap.js:657
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Tue"
-msgstr "ⴰⵙⵉ"
-
-#: weblate/static/loader-bootstrap.js:658
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Wed"
-msgstr "ⴰⴽⵕ"
-
-#: weblate/static/loader-bootstrap.js:659
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Thu"
-msgstr "ⴰⴽⵡ"
-
-#: weblate/static/loader-bootstrap.js:660
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Fri"
-msgstr "ⴰⵙⵎ"
-
-#: weblate/static/loader-bootstrap.js:661
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sat"
-msgstr "ⴰⵙⴹ"
-
-#: weblate/static/loader-bootstrap.js:665
-#: weblate/static/loader-bootstrap.js:672
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Su"
-msgstr "ⴰⵙⴰ"
-
-#: weblate/static/loader-bootstrap.js:666
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Mo"
-msgstr "ⴰⵢⵏ"
-
-#: weblate/static/loader-bootstrap.js:667
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Tu"
-msgstr "ⴰⵙⵉ"
-
-#: weblate/static/loader-bootstrap.js:668
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "We"
-msgstr "ⴰⴽⵕ"
-
-#: weblate/static/loader-bootstrap.js:669
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Th"
-msgstr "ⴰⴽⵡ"
-
-#: weblate/static/loader-bootstrap.js:670
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Fr"
-msgstr "ⴰⵙⵎ"
-
-#: weblate/static/loader-bootstrap.js:671
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Sa"
-msgstr "ⴰⵙⴹ"
-
-#: weblate/static/loader-bootstrap.js:675
-msgid "January"
-msgstr "ⵉⵏⵏⴰⵢⵔ"
-
-#: weblate/static/loader-bootstrap.js:676
-msgid "February"
-msgstr "ⴱⵕⴰⵢⵕ"
-
-#: weblate/static/loader-bootstrap.js:677
-msgid "March"
-msgstr "ⵎⴰⵕⵚ"
-
-#: weblate/static/loader-bootstrap.js:678
-msgid "April"
-msgstr "ⵉⴱⵔⵉⵔ"
-
-#: weblate/static/loader-bootstrap.js:679
-msgid "May"
-msgstr "ⵎⴰⵢⵢⵓ"
-
-#: weblate/static/loader-bootstrap.js:680
-msgid "June"
-msgstr "ⵢⵓⵏⵢⵓ"
-
-#: weblate/static/loader-bootstrap.js:681
-msgid "July"
-msgstr "ⵢⵓⵍⵢⵓⵣ"
-
-#: weblate/static/loader-bootstrap.js:682
-msgid "August"
-msgstr "ⵖⵓⵛⵜ"
-
-#: weblate/static/loader-bootstrap.js:683
-msgid "September"
-msgstr "ⵛⵓⵜⴰⵏⴱⵉⵔ"
-
-#: weblate/static/loader-bootstrap.js:684
-msgid "October"
-msgstr "ⴽⵟⵓⴱⵕ"
-
-#: weblate/static/loader-bootstrap.js:685
-msgid "November"
-msgstr "ⵏⵓⵡⴰⵏⴱⵉⵔ"
-
-#: weblate/static/loader-bootstrap.js:686
-msgid "December"
-msgstr "ⴷⵓⵊⴰⵏⴱⵉⵔ"
-
-#: weblate/static/loader-bootstrap.js:689
-msgctxt "Short name of month"
-msgid "Jan"
-msgstr "ⵉⵏⵏ"
-
-#: weblate/static/loader-bootstrap.js:690
-msgctxt "Short name of month"
-msgid "Feb"
-msgstr "ⴱⵕⴰ"
-
-#: weblate/static/loader-bootstrap.js:691
-msgctxt "Short name of month"
-msgid "Mar"
-msgstr "ⵎⴰⵕ"
-
-#: weblate/static/loader-bootstrap.js:692
-msgctxt "Short name of month"
-msgid "Apr"
-msgstr "ⵉⴱⵔ"
-
-#: weblate/static/loader-bootstrap.js:693
-msgctxt "Short name of month"
-msgid "May"
-msgstr "ⵎⴰⵢ"
-
-#: weblate/static/loader-bootstrap.js:694
-msgctxt "Short name of month"
-msgid "Jun"
-msgstr "ⵢⵓⵏ"
-
-#: weblate/static/loader-bootstrap.js:695
-msgctxt "Short name of month"
-msgid "Jul"
-msgstr "ⵢⵓⵍ"
-
-#: weblate/static/loader-bootstrap.js:696
-msgctxt "Short name of month"
-msgid "Aug"
-msgstr "ⵖⵓⵛ"
-
-#: weblate/static/loader-bootstrap.js:697
-msgctxt "Short name of month"
-msgid "Sep"
-msgstr "ⵛⵓⵜ"
-
-#: weblate/static/loader-bootstrap.js:698
-msgctxt "Short name of month"
-msgid "Oct"
-msgstr "ⴽⵟⵓ"
-
-#: weblate/static/loader-bootstrap.js:699
-msgctxt "Short name of month"
-msgid "Nov"
-msgstr "ⵏⵓⵡ"
-
-#: weblate/static/loader-bootstrap.js:700
-msgctxt "Short name of month"
-msgid "Dec"
-msgstr "ⴷⵓⵊ"
-
-#: weblate/static/loader-bootstrap.js:702
-msgid "Today"
-msgstr "ⴰⵙⵙ ⴰ"
-
-#: weblate/static/loader-bootstrap.js:703
-msgid "Clear"
-msgstr "ⴽⴽⵙ"
-
-#: weblate/static/loader-bootstrap.js:835
+#: weblate/static/loader-bootstrap.js:762
 msgid "Text copied to clipboard."
 msgstr "ⵉⵜⵜⵓⵙⵙⵏⵖⵍ ⵓⴹⵕⵉⵚ ⵖⵔ ⵜⵣⵣⵏⴱⵉⵍⵜ."
 
-#: weblate/static/loader-bootstrap.js:839
+#: weblate/static/loader-bootstrap.js:766
 msgid "Please press Ctrl+C to copy."
 msgstr "ⴰⴷⵔ ⴳ Ctrl+C ⵃⵎⴰ ⴰⴷ ⵉⵜⵜⵓⵙⵙⵏⵖ."
 
-#: weblate/static/loader-bootstrap.js:863
+#: weblate/static/loader-bootstrap.js:790
 msgid "Search…"
 msgstr "ⵔⵣⵓ…"
 
-#: weblate/static/loader-bootstrap.js:864
+#: weblate/static/loader-bootstrap.js:791
 msgid "Available:"
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:865
+#: weblate/static/loader-bootstrap.js:792
 msgid "Chosen:"
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:1130
+#: weblate/static/loader-bootstrap.js:1057
 msgid "Weblate is now scanning the repository, please be patient."
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:1225
+#: weblate/static/loader-bootstrap.js:1264
 msgctxt "Alert to user when opening browser developer console"
 msgid "Stop!"
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:1231
+#: weblate/static/loader-bootstrap.js:1270
 msgid ""
 "This is a browser feature intended for developers. If someone told you to "
 "copy-paste something here, they are likely trying to compromise your Weblate "
 "account."
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:1238
+#: weblate/static/loader-bootstrap.js:1276
 msgid "See https://en.wikipedia.org/wiki/Self-XSS for more information."
 msgstr ""
 
@@ -393,6 +176,173 @@ msgstr "ⵎⵢⴰⵡⴰⴹ ⴰⴽⵉⴷⵏⵖ ⵙ ⵜⵏⴳⵍⵉⵣⵉⵜ, ⴰ�
 #: weblate/static/zammad.js:51
 msgid "Attachments"
 msgstr ""
+
+#~ msgid "Sunday"
+#~ msgstr "ⴰⵙⴰⵎⴰⵙ"
+
+#~ msgid "Monday"
+#~ msgstr "ⴰⵢⵏⴰⵙ"
+
+#~ msgid "Tuesday"
+#~ msgstr "ⴰⵙⵉⵏⴰⵙ"
+
+#~ msgid "Wednesday"
+#~ msgstr "ⴰⴽⵕⴰⵙ"
+
+#~ msgid "Thursday"
+#~ msgstr "ⴰⴽⵡⴰⵙ"
+
+#~ msgid "Friday"
+#~ msgstr "ⴰⵙⵉⵎⵡⴰⵙ"
+
+#~ msgid "Saturday"
+#~ msgstr "ⴰⵙⵉⴹⵢⴰⵙ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sun"
+#~ msgstr "ⴰⵙⴰ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Mon"
+#~ msgstr "ⴰⵢⵏ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Tue"
+#~ msgstr "ⴰⵙⵉ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Wed"
+#~ msgstr "ⴰⴽⵕ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Thu"
+#~ msgstr "ⴰⴽⵡ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Fri"
+#~ msgstr "ⴰⵙⵎ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sat"
+#~ msgstr "ⴰⵙⴹ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Su"
+#~ msgstr "ⴰⵙⴰ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Mo"
+#~ msgstr "ⴰⵢⵏ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Tu"
+#~ msgstr "ⴰⵙⵉ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "We"
+#~ msgstr "ⴰⴽⵕ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Th"
+#~ msgstr "ⴰⴽⵡ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Fr"
+#~ msgstr "ⴰⵙⵎ"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Sa"
+#~ msgstr "ⴰⵙⴹ"
+
+#~ msgid "January"
+#~ msgstr "ⵉⵏⵏⴰⵢⵔ"
+
+#~ msgid "February"
+#~ msgstr "ⴱⵕⴰⵢⵕ"
+
+#~ msgid "March"
+#~ msgstr "ⵎⴰⵕⵚ"
+
+#~ msgid "April"
+#~ msgstr "ⵉⴱⵔⵉⵔ"
+
+#~ msgid "May"
+#~ msgstr "ⵎⴰⵢⵢⵓ"
+
+#~ msgid "June"
+#~ msgstr "ⵢⵓⵏⵢⵓ"
+
+#~ msgid "July"
+#~ msgstr "ⵢⵓⵍⵢⵓⵣ"
+
+#~ msgid "August"
+#~ msgstr "ⵖⵓⵛⵜ"
+
+#~ msgid "September"
+#~ msgstr "ⵛⵓⵜⴰⵏⴱⵉⵔ"
+
+#~ msgid "October"
+#~ msgstr "ⴽⵟⵓⴱⵕ"
+
+#~ msgid "November"
+#~ msgstr "ⵏⵓⵡⴰⵏⴱⵉⵔ"
+
+#~ msgid "December"
+#~ msgstr "ⴷⵓⵊⴰⵏⴱⵉⵔ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jan"
+#~ msgstr "ⵉⵏⵏ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Feb"
+#~ msgstr "ⴱⵕⴰ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Mar"
+#~ msgstr "ⵎⴰⵕ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Apr"
+#~ msgstr "ⵉⴱⵔ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "May"
+#~ msgstr "ⵎⴰⵢ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jun"
+#~ msgstr "ⵢⵓⵏ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jul"
+#~ msgstr "ⵢⵓⵍ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Aug"
+#~ msgstr "ⵖⵓⵛ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Sep"
+#~ msgstr "ⵛⵓⵜ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Oct"
+#~ msgstr "ⴽⵟⵓ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Nov"
+#~ msgstr "ⵏⵓⵡ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Dec"
+#~ msgstr "ⴷⵓⵊ"
+
+#~ msgid "Today"
+#~ msgstr "ⴰⵙⵙ ⴰ"
+
+#~ msgid "Clear"
+#~ msgstr "ⴽⴽⵙ"
 
 #~ msgid "Copy"
 #~ msgstr "ⵙⵙⵏⵖⵍ"

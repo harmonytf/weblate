@@ -15,6 +15,7 @@ from typing import Iterator, List, Optional
 from dateutil import parser
 from django.core.cache import cache
 from django.utils.functional import cached_property
+from django.utils.translation import gettext_lazy
 from packaging.version import Version
 
 from weblate.trans.util import get_clean_env, path_separator
@@ -55,6 +56,8 @@ class Repository:
     req_version: Optional[str] = None
     default_branch = ""
     needs_push_url = True
+    supports_push = True
+    push_label = gettext_lazy("This will push changes to the upstream repository.")
 
     _version = None
 
@@ -95,7 +98,7 @@ class Repository:
                 self.init()
 
     @classmethod
-    def get_remote_branch(cls, repo: str):
+    def get_remote_branch(cls, repo: str):  # noqa: ARG003
         return cls.default_branch
 
     @classmethod
@@ -514,11 +517,12 @@ class Repository:
         """Parses output with changed files."""
         raise NotImplementedError
 
-    def list_upstream_changed_files(self):
-        """List files missing upstream."""
-        return self.list_changed_files(
-            self.ref_to_remote.format(self.get_remote_branch_name())
-        )
+    def get_changed_files(self, compare_to: Optional[str] = None):
+        """Get files missing upstream or changes between revisions."""
+        if compare_to is None:
+            compare_to = self.get_remote_branch_name()
+
+        return self.list_changed_files(self.ref_to_remote.format(compare_to))
 
     def get_remote_branch_name(self):
         return f"origin/{self.branch}"

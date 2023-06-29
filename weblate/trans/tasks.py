@@ -4,18 +4,19 @@
 
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from glob import glob
 from typing import List, Optional
 
 from celery import current_task
 from celery.schedules import crontab
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, F
 from django.utils import timezone
-from django.utils.translation import gettext as _
-from django.utils.translation import ngettext, override
+from django.utils.timezone import make_aware
+from django.utils.translation import gettext, ngettext, override
 
 from weblate.addons.models import Addon
 from weblate.auth.models import User, get_anonymous
@@ -340,8 +341,8 @@ def component_removal(pk, uid):
             components = component.project.component_set.filter(
                 allow_translation_propagation=True
             ).exclude(pk=component.pk)
-            for component_id in components.values_list("id", flat=True):
-                update_checks.delay(component_id)
+            for component in components.iterator():
+                component.schedule_update_checks()
     except Component.DoesNotExist:
         return
 
@@ -404,13 +405,15 @@ def auto_translate(
             translation.log_error("failed automatic translation: %s", error)
             return {
                 "translation": translation_id,
-                "message": _("Automatic translation failed: %s") % error,
+                "message": gettext("Automatic translation failed: %s") % error,
             }
 
         translation.log_info("completed automatic translation")
 
         if auto.updated == 0:
-            message = _("Automatic translation completed, no strings were updated.")
+            message = gettext(
+                "Automatic translation completed, no strings were updated."
+            )
         else:
             message = (
                 ngettext(
@@ -484,8 +487,14 @@ def create_component(addons_from=None, in_task=False, **kwargs):
 
 
 @app.task(trail=False)
-def update_checks(pk: int, update_state: bool = False):
+def update_checks(pk: int, update_token: str, update_state: bool = False):
     component = Component.objects.get(pk=pk)
+
+    # Skip when further updates are scheduled
+    latest_token = cache.get(component.update_checks_key)
+    if latest_token and update_token != latest_token:
+        return
+
     component.batch_checks = True
     for translation in component.translation_set.exclude(
         pk=component.source_translation.pk
@@ -505,7 +514,7 @@ def update_checks(pk: int, update_state: bool = False):
 @app.task(trail=False)
 def daily_update_checks():
     components = Component.objects.all()
-    today = date.today()
+    today = timezone.now().date()
     if settings.BACKGROUND_TASKS == "never":
         return
     if settings.BACKGROUND_TASKS == "monthly":
@@ -514,8 +523,8 @@ def daily_update_checks():
         components = components.annotate(idmod=F("id") % 7).filter(
             idmod=today.weekday()
         )
-    for component_id in components.values_list("id", flat=True):
-        update_checks.delay(component_id)
+    for component in components.iterator():
+        component.schedule_update_checks()
 
 
 @app.task(trail=False)
@@ -523,13 +532,13 @@ def cleanup_project_backups():
     # This intentionally does not use Project objects to remove stale backups
     # for removed projects as well.
     rootdir = data_dir("projectbackups")
-    backup_cutoff = datetime.now() - timedelta(days=settings.PROJECT_BACKUP_KEEP_DAYS)
+    backup_cutoff = timezone.now() - timedelta(days=settings.PROJECT_BACKUP_KEEP_DAYS)
     for projectdir in glob(os.path.join(rootdir, "*")):
         if not os.path.isdir(projectdir):
             continue
         if projectdir.endswith("import"):
             # Keep imports for shorter time, but more of them
-            cutoff = datetime.now() - timedelta(days=1)
+            cutoff = timezone.now() - timedelta(days=1)
             max_count = 30
         else:
             cutoff = backup_cutoff
@@ -538,7 +547,9 @@ def cleanup_project_backups():
             (
                 (
                     path,
-                    datetime.fromtimestamp(int(path.split(".")[0])),
+                    make_aware(
+                        datetime.fromtimestamp(int(path.split(".")[0]))  # noqa: DTZ006
+                    ),
                 )
                 for path in os.listdir(projectdir)
                 if path.endswith((".zip", ".zip.part"))

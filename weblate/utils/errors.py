@@ -102,7 +102,17 @@ def init_error_collection(celery=False):
             or weblate.utils.version.TAG_NAME,
             environment=settings.SENTRY_ENVIRONMENT,
             traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+            profiles_sample_rate=settings.SENTRY_PROFILES_SAMPLE_RATE,
+            in_app_include=[
+                "weblate",
+                "wlhosted",
+                "wllegal",
+                "weblate_fedora_messaging",
+                "weblate_language_data",
+                "translate",
+            ],
             attach_stacktrace=True,
+            _experiments={"max_spans": 2000},
             **settings.SENTRY_EXTRA_ARGS,
         )
         # Ignore Weblate logging, those are reported using capture_exception

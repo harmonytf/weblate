@@ -15,11 +15,12 @@ from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command
 from django.test.client import RequestFactory
+from django.test.utils import override_settings
 from django.urls import reverse
 from django.utils.translation import activate
 from PIL import Image
 
-from weblate.auth.models import Group, setup_project_groups
+from weblate.auth.models import Group, get_anonymous, setup_project_groups
 from weblate.lang.models import Language
 from weblate.trans.models import Component, ComponentList, Project
 from weblate.trans.tests.test_models import RepoTestCase
@@ -65,6 +66,11 @@ class RegistrationTestMixin:
 
 
 class ViewTestCase(RepoTestCase):
+    @classmethod
+    def setUpTestData(cls):
+        get_anonymous.cache_clear()
+        super().setUpTestData()
+
     def setUp(self):
         super().setUp()
         # Many tests needs access to the request factory.
@@ -348,16 +354,17 @@ class BasicViewTest(ViewTestCase):
         self.assertContains(response, "Test/Test")
 
     def test_view_translation_others(self):
-        other = Component.objects.create(
-            name="RESX component",
-            slug="resx",
-            project=self.project,
-            repo="weblate://test/test",
-            file_format="resx",
-            filemask="resx/*.resx",
-            template="resx/en.resx",
-            new_lang="add",
-        )
+        with override_settings(CREATE_GLOSSARIES=self.CREATE_GLOSSARIES):
+            other = Component.objects.create(
+                name="RESX component",
+                slug="resx",
+                project=self.project,
+                repo="weblate://test/test",
+                file_format="resx",
+                filemask="resx/*.resx",
+                template="resx/en.resx",
+                new_lang="add",
+            )
         # Existing translation
         response = self.client.get(reverse("translation", kwargs=self.kw_translation))
         self.assertContains(response, other.name)

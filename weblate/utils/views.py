@@ -14,9 +14,7 @@ from django.core.paginator import EmptyPage, Paginator
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.utils.http import http_date
-from django.utils.translation import activate
-from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy, pgettext_lazy
+from django.utils.translation import activate, gettext, gettext_lazy, pgettext_lazy
 from django.views.decorators.gzip import gzip_page
 from django.views.generic.edit import FormView
 
@@ -122,6 +120,7 @@ SORT_CHOICES = {
     "source": gettext_lazy("Source string"),
     "target": gettext_lazy("Target string"),
     "timestamp": gettext_lazy("String age"),
+    "last_updated": gettext_lazy("Last updated"),
     "num_words": gettext_lazy("Number of words"),
     "num_comments": gettext_lazy("Number of comments"),
     "num_failing_checks": gettext_lazy("Number of failing checks"),
@@ -140,7 +139,7 @@ def get_sort_name(request, obj=None):
         default = "-priority,position"
     sort_query = request.GET.get("sort_by", default)
     sort_params = sort_query.replace("-", "")
-    sort_name = SORT_LOOKUP.get(sort_params, _("Position and priority"))
+    sort_name = SORT_LOOKUP.get(sort_params, gettext("Position and priority"))
     return {
         "query": sort_query,
         "name": sort_name,
@@ -306,9 +305,9 @@ def download_translation_file(
         try:
             exporter_cls = EXPORTERS[fmt]
         except KeyError:
-            raise Http404("File format not supported")
+            raise Http404(f"Conversion to {fmt} is not supported")
         if not exporter_cls.supports(translation):
-            raise Http404("File format not supported")
+            raise Http404("File format is not compatible with this translation")
         exporter = exporter_cls(translation=translation)
         units = translation.unit_set.prefetch_full().order_by("position")
         if query_string:
@@ -371,7 +370,7 @@ def get_form_errors(form):
         yield error
     for field in form:
         for error in field.errors:
-            yield _("Error in parameter %(field)s: %(error)s") % {
+            yield gettext("Error in parameter %(field)s: %(error)s") % {
                 "field": field.name,
                 "error": error,
             }

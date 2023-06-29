@@ -10,7 +10,7 @@ from copy import copy
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 from django.utils.functional import cached_property
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 from weblate_language_data.countries import DEFAULT_LANGS
 
 from weblate.trans.util import get_string
@@ -153,6 +153,16 @@ class TranslationUnit:
         raise NotImplementedError
 
     @cached_property
+    def explanation(self) -> str:
+        """Return explanation from a ttkit unit."""
+        return ""
+
+    @cached_property
+    def source_explanation(self) -> str:
+        """Return source explanation from a ttkit unit."""
+        return ""
+
+    @cached_property
     def context(self):
         """
         Return context of message.
@@ -209,6 +219,12 @@ class TranslationUnit:
         """Set translation unit target."""
         raise NotImplementedError
 
+    def set_explanation(self, explanation: str):
+        return
+
+    def set_source_explanation(self, explanation: str):
+        return
+
     def set_state(self, state):
         """Set fuzzy /approved flag on translated unit."""
         raise NotImplementedError
@@ -240,6 +256,8 @@ class TranslationFormat:
     bilingual_class = None
     create_style = "create"
     has_multiple_strings: bool = False
+    supports_explanation: bool = False
+    strict_format_plurals: bool = False
     plural_preference: Optional[Tuple[int, ...]] = None
 
     @classmethod
@@ -308,7 +326,9 @@ class TranslationFormat:
         """Check store validity."""
         if not self.is_valid():
             raise ValueError(
-                _("Failed to load strings from the file, try choosing other format.")
+                gettext(
+                    "Failed to load strings from the file, try choosing other format."
+                )
             )
         self.ensure_index()
 
@@ -321,7 +341,7 @@ class TranslationFormat:
         raise NotImplementedError
 
     @classmethod
-    def get_plural(cls, language, store=None):
+    def get_plural(cls, language, store=None):  # noqa: ARG003
         """Return matching plural object."""
         if cls.plural_preference is not None:
             # Fetch all matching plurals
@@ -518,6 +538,10 @@ class TranslationFormat:
         return EXPAND_LANGS.get(code, code)
 
     @staticmethod
+    def get_language_posix_long_lowercase(code: str) -> str:
+        return EXPAND_LANGS.get(code, code).lower()
+
+    @staticmethod
     def get_language_linux(code: str) -> str:
         """Linux doesn't use Hans/Hant, but rather TW/CN variants."""
         return LEGACY_CODES.get(code, code)
@@ -684,14 +708,14 @@ class TranslationFormat:
         """Removes unused strings, returning list of additional changed files."""
         if not self.template_store:
             return []
-        existing = {unit.context for unit in self.template_store.template_units}
+        existing = {template.context for template in self.template_store.template_units}
         changed = False
 
         result = []
 
-        for ttkit_unit in self.all_store_units:
-            if self.unit_class(self, ttkit_unit, ttkit_unit).context not in existing:
-                item = self.delete_unit(ttkit_unit)
+        for unit in self.all_store_units:
+            if self.unit_class(self, None, unit).context not in existing:
+                item = self.delete_unit(unit)
                 if item is not None:
                     result.append(item)
                 else:
@@ -744,7 +768,7 @@ class TranslationFormat:
         return result
 
     @staticmethod
-    def validate_context(context: str):
+    def validate_context(context: str):  # noqa: ARG004
         return
 
 
@@ -752,7 +776,7 @@ class EmptyFormat(TranslationFormat):
     """For testing purposes."""
 
     @classmethod
-    def load(cls, storefile, template_store):
+    def load(cls, storefile, template_store):  # noqa: ARG003
         return type("", (object,), {"units": []})()
 
     def save(self):

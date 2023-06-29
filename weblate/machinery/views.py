@@ -15,7 +15,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils.functional import cached_property
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
 from django.views.generic.edit import FormView
@@ -24,6 +24,7 @@ from weblate.configuration.models import Setting
 from weblate.machinery.base import MachineTranslationError
 from weblate.machinery.models import MACHINERY
 from weblate.trans.models import Unit
+from weblate.utils.diff import Differ
 from weblate.utils.errors import report_error
 from weblate.utils.views import get_project
 from weblate.wladmin.views import MENU as MANAGE_MENU
@@ -165,7 +166,10 @@ class EditMachineryView(FormView):
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         self.machinery_id = kwargs["machinery"]
-        self.machinery = MACHINERY[self.machinery_id]
+        try:
+            self.machinery = MACHINERY[self.machinery_id]
+        except KeyError:
+            raise Http404("Invalid service specified")
         self.project = None
         self.post_setup(request, kwargs)
 
@@ -290,15 +294,15 @@ class EditMachineryProjectView(MachineryProjectMixin, EditMachineryView):
 
 
 def handle_machinery(request, service, unit, search=None):
-    if service not in MACHINERY:
-        raise Http404("Invalid service specified")
-
     translation = unit.translation
     component = translation.component
     if not request.user.has_perm("machinery.view", translation):
         raise PermissionDenied
 
-    translation_service_class = MACHINERY[service]
+    try:
+        translation_service_class = MACHINERY[service]
+    except KeyError:
+        raise Http404("Invalid service specified")
 
     # Error response
     response = {
@@ -311,23 +315,27 @@ def handle_machinery(request, service, unit, search=None):
     }
 
     machinery_settings = component.project.get_machinery_settings()
+    differ = Differ()
+    targets = unit.get_target_plurals()
 
     try:
         translation_service = translation_service_class(machinery_settings[service])
     except KeyError:
-        response["responseDetails"] = _("Service is currently not available.")
+        response["responseDetails"] = gettext("Service is currently not available.")
     else:
         try:
             if search:
-                response["translations"] = translation_service.search(
-                    unit, search, request.user
-                )
+                translations = translation_service.search(unit, search, request.user)
             else:
                 translations = translation_service.translate(unit, request.user)
                 for plural_form, possible_translations in enumerate(translations):
                     for item in possible_translations:
                         item["plural_form"] = plural_form
-                response["translations"] = list(chain.from_iterable(translations))
+                        item["diff"] = differ.highlight(
+                            item["text"], targets[plural_form]
+                        )
+                translations = list(chain.from_iterable(translations))
+            response["translations"] = translations
             response["responseStatus"] = 200
         except MachineTranslationError as exc:
             response["responseDetails"] = str(exc)

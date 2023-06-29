@@ -12,7 +12,7 @@ from typing import Callable, List, Optional, Union
 from zipfile import ZipFile
 
 from django.utils.functional import cached_property
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy
 from translate.convert.po2html import po2html
 from translate.convert.po2idml import translate_idml, write_idml
 from translate.convert.po2rc import rerc
@@ -118,7 +118,7 @@ class ConvertFormat(TranslationFormat):
         raise NotImplementedError
 
     @staticmethod
-    def needs_target_sync(template_store):
+    def needs_target_sync(template_store):  # noqa: ARG004
         return False
 
     def load(self, storefile, template_store):
@@ -140,9 +140,9 @@ class ConvertFormat(TranslationFormat):
     def create_new_file(
         cls,
         filename: str,
-        language: str,
+        language: str,  # noqa: ARG003
         base: str,
-        callback: Optional[Callable] = None,
+        callback: Optional[Callable] = None,  # noqa: ARG003
     ):
         """Handle creation of new translation file."""
         if not base:
@@ -154,7 +154,7 @@ class ConvertFormat(TranslationFormat):
     def is_valid_base_for_new(
         cls,
         base: str,
-        monolingual: bool,
+        monolingual: bool,  # noqa: ARG003
         errors: Optional[List] = None,
         fast: bool = False,
     ) -> bool:
@@ -164,7 +164,9 @@ class ConvertFormat(TranslationFormat):
         try:
             if not fast:
                 cls(base, None)
-        except Exception:
+        except Exception as exception:
+            if errors is not None:
+                errors.append(exception)
             report_error(cause="File parse error")
             return False
         return True
@@ -223,7 +225,7 @@ class ConvertFormat(TranslationFormat):
 
 
 class HTMLFormat(ConvertFormat):
-    name = _("HTML file")
+    name = gettext_lazy("HTML file")
     autoload = ("*.htm", "*.html")
     format_id = "html"
     check_flags = ("safe-html", "strict-same")
@@ -242,7 +244,7 @@ class HTMLFormat(ConvertFormat):
             templatename = templatename.name
         with open(templatename, "rb") as templatefile:
             outputstring = converter.mergestore(
-                self.store, templatefile, includefuzzy=False
+                self.store, templatefile, includefuzzy=True
             )
         handle.write(outputstring.encode("utf-8"))
 
@@ -258,7 +260,7 @@ class HTMLFormat(ConvertFormat):
 
 
 class OpenDocumentFormat(ConvertFormat):
-    name = _("OpenDocument file")
+    name = gettext_lazy("OpenDocument file")
     autoload = (
         "*.sxw",
         "*.odt",
@@ -283,7 +285,7 @@ class OpenDocumentFormat(ConvertFormat):
     unit_class = ConvertXliffUnit
 
     @staticmethod
-    def convertfile(storefile, template_store):
+    def convertfile(storefile, template_store):  # noqa: ARG004
         store = xlifffile()
         store.setfilename(store.getfilenode("NoName"), "odf")
         contents = open_odf(storefile)
@@ -317,18 +319,18 @@ class OpenDocumentFormat(ConvertFormat):
         return "odt"
 
     @staticmethod
-    def needs_target_sync(template_store):
+    def needs_target_sync(template_store):  # noqa: ARG004
         return True
 
 
 class IDMLFormat(ConvertFormat):
-    name = _("IDML file")
+    name = gettext_lazy("IDML file")
     autoload = ("*.idml", "*.idms")
     format_id = "idml"
     check_flags = ("strict-same",)
 
     @staticmethod
-    def convertfile(storefile, template_store):
+    def convertfile(storefile, template_store):  # noqa: ARG004
         store = pofile()
 
         contents = open_idml(storefile)
@@ -375,12 +377,12 @@ class IDMLFormat(ConvertFormat):
         return "idml"
 
     @staticmethod
-    def needs_target_sync(template_store):
+    def needs_target_sync(template_store):  # noqa: ARG004
         return True
 
 
 class WindowsRCFormat(ConvertFormat):
-    name = _("RC file")
+    name = gettext_lazy("RC file")
     format_id = "rc"
     autoload = ("*.rc",)
     language_format = "bcp"
@@ -448,7 +450,7 @@ class WindowsRCFormat(ConvertFormat):
 
 
 class PlainTextFormat(ConvertFormat):
-    name = _("Plain text file")
+    name = gettext_lazy("Plain text file")
     format_id = "txt"
     autoload = ("*.txt",)
     flavour = "plain"
@@ -486,14 +488,14 @@ class PlainTextFormat(ConvertFormat):
 
 
 class DokuWikiFormat(PlainTextFormat):
-    name = _("DokuWiki text file")
+    name = gettext_lazy("DokuWiki text file")
     format_id = "dokuwiki"
     autoload = ("*.dw",)
     flavour = "dokuwiki"
 
 
 class MediaWikiFormat(PlainTextFormat):
-    name = _("MediaWiki text file")
+    name = gettext_lazy("MediaWiki text file")
     format_id = "mediawiki"
     autoload = ("*.mw",)
     flavour = "mediawiki"

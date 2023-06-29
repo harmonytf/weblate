@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 
 from django.core.exceptions import ValidationError
 from django.utils.functional import cached_property
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 
 from weblate.addons.events import (
     EVENT_COMPONENT_UPDATE,
@@ -163,7 +163,7 @@ class BaseAddon:
         self.instance.save(update_fields=["state"])
 
     @classmethod
-    def can_install(cls, component, user):
+    def can_install(cls, component, user):  # noqa: ARG003
         """Check whether add-on is compatible with given component."""
         return all(
             getattr(component, key) in values for key, values in cls.compat.items()
@@ -321,7 +321,7 @@ class BaseAddon:
             if component.repo_needs_merge():
                 messages.warning(
                     request,
-                    _(
+                    gettext(
                         "The repository is outdated, you might not get "
                         "expected results until you update it."
                     ),
@@ -382,7 +382,7 @@ class TestCrashAddon(UpdateBaseAddon):
             raise TestException("Test error")
 
     @classmethod
-    def can_install(cls, component, user):
+    def can_install(cls, component, user):  # noqa: ARG003
         return False
 
 

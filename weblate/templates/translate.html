@@ -53,9 +53,7 @@
 {% perm 'unit.add' unit.translation as user_can_add_unit %}
 
 <div class="btn-group pull-right flip btn-group-settings" role="group">
-{% if user_can_translate %}
-<a href="{% url 'zen' project=project.slug component=object.component.slug lang=object.language.code %}?offset={{offset}}&amp;{{ search_url }}" data-params="{{ search_url }}" title="{% trans "Edit in Zen mode" %}" class="btn btn-link">{% icon "flash.svg" %} {% trans "Zen" %}</a>
-{% endif %}
+<a href="{% url 'zen' project=project.slug component=object.component.slug lang=object.language.code %}?offset={{offset}}&amp;{{ search_url }}" data-params="{{ search_url }}" title="{% trans "Open in Zen mode" %}" class="btn btn-link">{% icon "flash.svg" %} {% trans "Zen" %}</a>
 
 <a href="{% url 'profile' %}#preferences" class="btn btn-link" title="{% trans "Configure editor" %}">{% icon "settings.svg" %}</a>
 </div>
@@ -155,7 +153,7 @@
             {% if unit.context %}
                 <div class="pull-right flip">
                 <label>{{ unit.translation.component.context_label }}</label>
-                {% format_translation unit.context unit.translation.component.source_language simple=True wrap=True search_match=search_query %}
+                {% format_translation unit.context unit.translation.component.source_language simple=True wrap=True search_match=search_query whitespace=False %}
                 </div>
             {% endif %}
             <a class="language" href="{{ unit.source_unit.get_absolute_url }}">{{ unit.translation.component.source_language }}</a>
@@ -203,21 +201,7 @@
         title="{% trans "This translation is currently locked." %}"
     {% elif not user_can_translate and not user_can_edit_flags %}
         disabled="disabled"
-        {% if not user.is_authenticated %}
-            title="{% trans "Please sign in to save translations." %}"
-        {% elif unit.approved %}
-            title="{% trans "Only reviewers can change approved strings, please add a suggestion if you think the string should be changed." %}"
-        {% elif unit.translation.component.suggestion_voting %}
-            title="{% trans "This translation only accepts suggestions, and these are approved by voting." %}"
-        {% elif unit.translation.component.agreement %}
-            title="{% trans "Contributing to this translation requires you agree to its contributor agreement." %}"
-        {% elif unit.readonly %}
-            title="{% trans "Read only" %}"
-        {% elif unit.translation.is_template %}
-            title="{% trans "Insufficient privileges for editing source strings." %}"
-        {% else %}
-            title="{% trans "Insufficient privileges for saving translations." %}"
-        {% endif %}
+        title="{{ user_can_translate.reason }}"
     {% elif not user_can_translate and user_can_edit_flags and not unit.translation.component.is_glossary %}
         disabled="disabled"
         title="{% trans "Insufficient privileges for saving translations." %}"
@@ -311,6 +295,7 @@
       <th></th>
       <th>{% trans "Component" %}</th>
       <th>{{ unit.translation.component.context_label }}</th>
+      <th>{% trans "Source" %}</th>
       <th>{% trans "Translation" %}</th>
       <th>{% trans "Difference to current string" %}</th>
     </tr>
@@ -323,7 +308,7 @@
     </tbody>
     {% endif %}
     {% if others.matching %}
-    <tr><th colspan="5" class="warning">{% blocktrans count count=others.matching|length %}The following string has the same context and source.{% plural %}The following strings have the same context and source.{% endblocktrans %}</th></tr>
+    <tr><th colspan="6" class="warning">{% blocktrans count count=others.matching|length %}This string has the same context and source.{% plural %}These strings have the same context and source.{% endblocktrans %}</th></tr>
     <tbody>
     {% for item in others.matching %}
     {% include "trans/other-row.html" %}
@@ -331,7 +316,7 @@
     </tbody>
     {% endif %}
     {% if others.source %}
-    <tr><th colspan="5" class="warning">{% blocktrans count count=others.source|length %}The following string has different context, but the same source.{% plural %}The following strings have different contexts, but the same source.{% endblocktrans %}</th></tr>
+    <tr><th colspan="6" class="warning">{% blocktrans count count=others.source|length %}This string has a different context, but the same source.{% plural %}These strings have differing context, but the same source.{% endblocktrans %}</th></tr>
     <tbody>
     {% for item in others.source %}
     {% include "trans/other-row.html" %}
@@ -339,7 +324,7 @@
     </tbody>
     {% endif %}
     {% if others.context %}
-    <tr><th colspan="5" class="warning">{% blocktrans count count=others.context|length %}The following string has a different source, but the same context.{% plural %}The following strings have different sources, but the same context.{% endblocktrans %}</th></tr>
+    <tr><th colspan="6" class="warning">{% blocktrans count count=others.context|length %}This string has a different source, but the same context.{% plural %}These strings have differing sources, but the same context.{% endblocktrans %}</th></tr>
     <tbody>
     {% for item in others.context %}
     {% include "trans/other-row.html" %}
@@ -347,7 +332,7 @@
     </tbody>
     {% endif %}
     {% if others.other %}
-    <tr><th colspan="5" class="warning">{% blocktrans count count=others.other|length %}The following string has a different source and different context.{% plural %}The following strings have different sources and context.{% endblocktrans %}</th></tr>
+    <tr><th colspan="6" class="warning">{% blocktrans count count=others.other|length %}This string has a different source and context.{% plural %}These strings have differing sources and context.{% endblocktrans %}</th></tr>
     <tbody>
     {% for item in others.other %}
     {% include "trans/other-row.html" %}
@@ -390,6 +375,7 @@
     <thead>
       <tr>
         <th>{% trans "Translation" %}</th>
+        <th>{% trans "Suggested change" %}</th>
         <th>{% trans "Source" %}</th>
         <th>{% trans "Origin" %}</th>
         <th>{% trans "Similarity" %}</th>
@@ -704,6 +690,12 @@
     {% trans "String age" %}
     </h5>
     {{ unit.timestamp|naturaltime }}
+    </div>
+    <div class="list-group-item">
+    <h5>
+    {% trans "Last updated" %}
+    </h5>
+    {{ unit.last_updated|naturaltime }}
     </div>
     <div class="list-group-item">
     <h5>

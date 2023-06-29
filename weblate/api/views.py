@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import format_html
+from django.utils.translation import gettext
 from django_filters import rest_framework as filters
 from rest_framework import parsers, viewsets
 from rest_framework.decorators import action
@@ -83,7 +84,6 @@ from weblate.trans.models import (
     Translation,
     Unit,
 )
-from weblate.trans.stats import get_project_stats
 from weblate.trans.tasks import auto_translate, component_removal, project_removal
 from weblate.trans.views.files import download_multi
 from weblate.utils.celery import get_queue_stats, get_task_progress, is_task_ready
@@ -107,6 +107,7 @@ REPO_OPERATIONS = {
     "cleanup": ("vcs.reset", "do_cleanup", (), True),
     "commit": ("vcs.commit", "commit_pending", ("api",), False),
     "file-sync": ("vcs.reset", "do_file_sync", (), True),
+    "file-scan": ("vcs.reset", "do_file_scan", (), True),
 }
 
 DOC_TEXT = """
@@ -696,7 +697,11 @@ class ProjectViewSet(
     def languages(self, request, **kwargs):
         obj = self.get_object()
 
-        return Response(get_project_stats(obj))
+        serializer = StatisticsSerializer(
+            obj.stats.get_language_stats(), many=True, context={"request": request}
+        )
+
+        return Response(serializer.data)
 
     @action(detail=True, methods=["get"])
     def changes(self, request, **kwargs):
@@ -1108,8 +1113,9 @@ class TranslationViewSet(MultipleFieldMixin, WeblateViewSet, DestroyModelMixin):
             serializer_class = BilingualUnitSerializer
 
         if request.method == "POST":
-            if not request.user.has_perm("unit.add", obj):
-                self.permission_denied(request, "Can not add unit")
+            can_add = request.user.has_perm("unit.add", obj)
+            if not can_add:
+                self.permission_denied(request, can_add.reason)
             serializer = serializer_class(
                 data=request.data, context={"translation": obj}
             )
@@ -1141,7 +1147,7 @@ class TranslationViewSet(MultipleFieldMixin, WeblateViewSet, DestroyModelMixin):
         if translation.component.locked:
             self.permission_denied(request, "Component is locked")
 
-        autoform = AutoForm(translation.component, request.data)
+        autoform = AutoForm(translation.component, request.user, request.data)
         if not autoform.is_valid():
             errors = {}
             for field in autoform:
@@ -1290,15 +1296,14 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
                     {"state": "Can not use non empty state with empty target"}
                 )
 
-            if not user.has_perm("unit.edit", unit):
-                raise PermissionDenied
+            can_edit = user.has_perm("unit.edit", unit)
+            if not can_edit:
+                self.permission_denied(request, can_edit.reason)
 
-            if new_state == STATE_APPROVED and not user.has_perm(
-                "unit.review", translation
-            ):
-                self.permission_denied(
-                    request, "You do not have permission to edit approved strings."
-                )
+            if new_state == STATE_APPROVED:
+                can_review = user.has_perm("unit.review", translation)
+                if not can_review:
+                    raise ValidationError({"state": can_review.reason})
 
         # Update attributes
         if do_source:
@@ -1318,8 +1323,9 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
 
     def destroy(self, request, *args, **kwargs):
         obj = self.get_object()
-        if not request.user.has_perm("unit.delete", obj):
-            self.permission_denied(request, "Can not remove string")
+        can_delete = request.user.has_perm("unit.delete", obj)
+        if not can_delete:
+            self.permission_denied(request, can_delete.reason)
         try:
             obj.translation.delete_unit(request, obj)
         except FileParseError as error:
@@ -1552,7 +1558,6 @@ class Metrics(APIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request, format=None):
-        """Return a list of all users."""
         stats = GlobalStats()
         return Response(
             {
@@ -1573,6 +1578,52 @@ class Metrics(APIView):
                 "name": settings.SITE_TITLE,
             }
         )
+
+
+class Search(APIView):
+    """Site-wide search endpoint."""
+
+    def get(self, request, format=None):
+        user = request.user
+        projects = user.allowed_projects
+        components = Component.objects.filter(project__in=projects)
+        results = []
+        query = request.GET.get("q")
+        if query:
+            for project in projects.search(query)[:5]:
+                results.append(
+                    {
+                        "url": project.get_absolute_url(),
+                        "name": project.name,
+                        "category": gettext("Project"),
+                    }
+                )
+            for component in components.search(query)[:5]:
+                results.append(
+                    {
+                        "url": component.get_absolute_url(),
+                        "name": str(component),
+                        "category": gettext("Component"),
+                    }
+                )
+            for user in User.objects.search(query)[:5]:
+                results.append(
+                    {
+                        "url": user.get_absolute_url(),
+                        "name": user.username,
+                        "category": gettext("User"),
+                    }
+                )
+            for language in Language.objects.search(query)[:5]:
+                results.append(
+                    {
+                        "url": language.get_absolute_url(),
+                        "name": language.name,
+                        "category": gettext("Language"),
+                    }
+                )
+
+        return Response(results)
 
 
 class TasksViewSet(ViewSet):

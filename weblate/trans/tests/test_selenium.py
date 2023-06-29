@@ -119,7 +119,7 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
 
         # Force English locales, the --lang and accept_language settings does not
         # work in some cases
-        backup_lang = os.environ["LANG"]
+        backup_lang = os.environ.get("LANG", None)
         os.environ["LANG"] = "en_US.UTF-8"
 
         try:
@@ -131,7 +131,11 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
 
         # Restore custom fontconfig settings
         os.environ["FONTCONFIG_FILE"] = backup_fc
-        os.environ["LANG"] = backup_lang
+        # Restore locales
+        if backup_lang is None:
+            del os.environ["LANG"]
+        else:
+            os.environ["LANG"] = backup_lang
 
         if cls.driver is not None:
             cls.driver.implicitly_wait(5)
@@ -441,6 +445,22 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
             self.click(htmlid="settings-button")
         self.click("Account")
         self.screenshot("authentication.png")
+
+    def test_screenshot_filemask_repository_filename(self):
+        """Test of mask of files to allow discovery/update of screenshots."""
+        self.create_component()
+        self.do_login(superuser=True)
+        self.click(htmlid="projects-menu")
+        with self.wait_for_page_load():
+            self.click("Browse all projects")
+        with self.wait_for_page_load():
+            self.click("WeblateOrg")
+        with self.wait_for_page_load():
+            self.click("Django")
+        self.click("Manage")
+        with self.wait_for_page_load():
+            self.click("Screenshots")
+        self.screenshot("screenshot-filemask-repository-filename.png")
 
     def test_screenshots(self):
         """Screenshot tests."""
@@ -1052,14 +1072,14 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
             element.submit()
 
         Select(self.driver.find_element(By.ID, "id_font")).select_by_visible_text(
-            "Droid Sans Fallback Regular"
+            "Kurinto Sans Regular"
         )
         element = self.driver.find_element(By.ID, "id_language")
         Select(element).select_by_visible_text("Japanese")
         with self.wait_for_page_load():
             element.submit()
         Select(self.driver.find_element(By.ID, "id_font")).select_by_visible_text(
-            "Droid Sans Fallback Regular"
+            "Kurinto Sans Regular"
         )
         element = self.driver.find_element(By.ID, "id_language")
         Select(element).select_by_visible_text("Korean")

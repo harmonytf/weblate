@@ -53,6 +53,12 @@ Access this directly from the translation interface by clicking the
 
 .. image:: /screenshots/source-information.png
 
+.. seealso::
+
+   :ref:`format-location`,
+   :ref:`format-description`,
+   :ref:`format-context`
+
 Strings prioritization
 ++++++++++++++++++++++
 
@@ -96,8 +102,19 @@ Explanation
 
     In previous versions this has been called :guilabel:`Extra context`.
 
+.. versionchanged:: 4.18
+
+   Support for synching explanation with a file was introduced.
+
 Use the explanation to clarify scope or usage of the translation. You can use
 Markdown to include links and other markup.
+
+Some file formats support storing explanation within the file, see :ref:`format-explanation`.
+
+.. hint::
+
+   Weblate can also display description present in the translation file for
+   some formats, see :ref:`format-description`.
 
 .. _screenshots:
 
@@ -121,3 +138,21 @@ Once a screenshot is uploaded, this interface handles
 management and source string association:
 
 .. image:: /screenshots/screenshot-ocr.png
+
+You can add or update screenshots directly from your
+Version Control System (VCS) repository.
+
+To enable this feature, you can either set a screenshot file mask
+when creating a component, which will be monitored for updates in
+the repository, or you can add or update screenshots when uploading them manually.
+
+When the repository is updated, the system will automatically scan
+for changes. Existing screenshots in the repository will be updated,
+and new screenshots matching the specified screenshot file mask will
+be added to the component.
+
+.. image:: /screenshots/screenshot-filemask-repository-filename.png
+
+.. seealso::
+
+   :ref:`component-screenshot_filemask`

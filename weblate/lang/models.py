@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import gettext
 import re
 from collections import defaultdict
+from gettext import c2py
 from itertools import chain
 from typing import Callable, Optional
 from weakref import WeakValueDictionary
@@ -17,8 +17,7 @@ from django.db.utils import OperationalError
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.html import format_html
-from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy, pgettext_lazy
+from django.utils.translation import gettext, gettext_lazy, pgettext_lazy
 from django.utils.translation.trans_real import parse_accept_lang_header
 from weblate_language_data.aliases import ALIASES
 from weblate_language_data.countries import DEFAULT_LANGS
@@ -42,6 +41,7 @@ PLURAL_TITLE = """
 {name} <span title="{examples}">{icon}</span>
 """
 COPY_RE = re.compile(r"\([0-9]+\)")
+KNOWN_SUFFIXES = {"hant", "hans", "latn", "cyrl", "shaw"}
 
 
 def get_plural_type(base_code, plural_formula):
@@ -88,13 +88,13 @@ def is_same_plural(
 ):
     if our_function is None:
         try:
-            our_function = gettext.c2py(our_formula)
+            our_function = c2py(our_formula)
         except ValueError:
             return False
 
     if plural_function is None:
         try:
-            plural_function = gettext.c2py(formula)
+            plural_function = c2py(formula)
         except ValueError:
             return False
 
@@ -180,14 +180,11 @@ class LanguageQuerySet(models.QuerySet):
         code = code.lower()
         # Normalize script suffix
         code = code.replace("_latin", "@latin").replace("_cyrillic", "@cyrillic")
-        codes = [
-            code,
-            code.replace("+", "_"),
-            code.replace("-", "_"),
-            code.replace("-r", "_"),
-            code.replace("_r", "_"),
-        ]
-        if expanded_code:
+        codes = [code]
+        for replacement in ("+", "-", "-r", "_r"):
+            if replacement in code:
+                codes.append(code.replace(replacement, "_"))
+        if expanded_code and expanded_code != code:
             codes.append(expanded_code)
 
         # Lookup in aliases
@@ -201,7 +198,12 @@ class LanguageQuerySet(models.QuerySet):
         # Alias language code only
         for newcode in codes:
             language, _sep, country = newcode.partition("_")
-            if country and len(language) > 2 and language in ALIASES:
+            if (
+                country
+                and len(language) > 2
+                and language in ALIASES
+                and "_" not in ALIASES[language]
+            ):
                 testcode = f"{ALIASES[language]}_{country}"
                 ret = self.fuzzy_get(code=testcode, strict=True)
                 if ret is not None:
@@ -262,6 +264,8 @@ class LanguageQuerySet(models.QuerySet):
                 # Xliff way of defining variants
                 region, variant = country.split("_", 1)
                 country = f"{region.upper()}@{variant.lower()}"
+            elif country in KNOWN_SUFFIXES:
+                country = country.title()
             else:
                 country = country.upper()
             newcode = f"{lang.lower()}_{country}"
@@ -366,7 +370,7 @@ class LanguageQuerySet(models.QuerySet):
             item[:2]
             for item in sort_unicode(
                 (
-                    (code, f"{_(name)} ({code})", name)
+                    (code, f"{gettext(name)} ({code})", name)
                     for name, code in self.values_list("name", "code")
                 ),
                 lambda tup: tup[2],
@@ -402,6 +406,9 @@ class LanguageQuerySet(models.QuerySet):
             except Language.DoesNotExist:
                 continue
         return None
+
+    def search(self, query: str):
+        return self.filter(Q(name__icontains=query) | Q(code__icontains=query))
 
 
 class LanguageManager(models.Manager.from_queryset(LanguageQuerySet)):
@@ -587,8 +594,8 @@ class Language(models.Model, CacheKeyMixin):
 
     def __str__(self):
         if self.show_language_code:
-            return f"{_(self.name)} ({self.code})"
-        return _(self.name)
+            return f"{gettext(self.name)} ({self.code})"
+        return gettext(self.name)
 
     def save(self, *args, **kwargs):
         """Set default direction for language."""
@@ -809,7 +816,7 @@ class Plural(models.Model):
     @cached_property
     def plural_function(self):
         try:
-            return gettext.c2py(self.formula if self.formula else "0")
+            return c2py(self.formula if self.formula else "0")
         except ValueError as error:
             raise ValueError(f"Failed to compile formula {self.formula!r}: {error}")
 
@@ -818,7 +825,7 @@ class Plural(models.Model):
         result = defaultdict(list)
         func = self.plural_function
         for i in chain(range(0, 10000), range(10000, 2000001, 1000)):
-            ret = func(i)
+            ret = func(i)  # pylint: disable=too-many-function-args
             if len(result[ret]) >= 10:
                 continue
             result[ret].append(str(i))
@@ -835,7 +842,7 @@ class Plural(models.Model):
         if not formula:
             formula = "0"
         # Try to parse the formula
-        gettext.c2py(formula)
+        c2py(formula)
 
         return number, formula
 
@@ -867,7 +874,7 @@ class Plural(models.Model):
             name=self.get_plural_name(idx),
             icon=icon("info.svg"),
             # Translators: Label for plurals with example counts
-            examples=_("For example: {0}").format(
+            examples=gettext("For example: {0}").format(
                 ", ".join(self.examples.get(idx, []))
             ),
         )
@@ -878,10 +885,10 @@ class Plural(models.Model):
             return str(data.PLURAL_NAMES[self.type][idx])
         except (IndexError, KeyError):
             if idx == 0:
-                return _("Singular")
+                return gettext("Singular")
             if idx == 1:
-                return _("Plural")
-            return _("Plural form %d") % idx
+                return gettext("Plural")
+            return gettext("Plural form %d") % idx
 
     def list_plurals(self):
         for i in range(self.number):

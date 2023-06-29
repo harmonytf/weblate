@@ -9,19 +9,19 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.checks import run_checks
 from django.core.mail import send_mail
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.html import escape, format_html
-from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView
 from django.views.generic.edit import FormMixin
 
+from weblate.accounts.forms import AdminUserSearchForm
 from weblate.accounts.views import UserList
 from weblate.auth.decorators import management_access
 from weblate.auth.forms import AdminInviteUserForm, SitewideTeamForm
@@ -52,7 +52,6 @@ from weblate.wladmin.forms import (
     BackupForm,
     SSHAddForm,
     TestMailForm,
-    UserSearchForm,
 )
 from weblate.wladmin.models import BackupService, ConfigurationError, SupportStatus
 from weblate.wladmin.tasks import backup_service, support_status_update
@@ -116,10 +115,12 @@ def tools(request):
             if email_form.is_valid():
                 try:
                     send_test_mail(**email_form.cleaned_data)
-                    messages.success(request, _("Test e-mail sent."))
+                    messages.success(request, gettext("Test e-mail sent."))
                 except Exception as error:
                     report_error()
-                    messages.error(request, _("Could not send test e-mail: %s") % error)
+                    messages.error(
+                        request, gettext("Could not send test e-mail: %s") % error
+                    )
                 return redirect("manage-tools")
 
         if "sentry" in request.POST:
@@ -150,7 +151,14 @@ def tools(request):
 def discovery(request):
     support = SupportStatus.objects.get_current()
 
-    if support.secret:
+    if not support.discoverable and settings.SITE_TITLE == "Weblate":
+        messages.error(
+            request,
+            gettext(
+                "Please change SITE_TITLE in settings to make your Weblate easy to recognize in discover."
+            ),
+        )
+    elif support.secret:
         support.discoverable = not support.discoverable
         support.save(update_fields=["discoverable"])
         support_status_update.delay()
@@ -175,12 +183,12 @@ def activate(request):
         try:
             support.refresh()
             support.save()
-            messages.success(request, _("Activation completed."))
+            messages.success(request, gettext("Activation completed."))
         except Exception:
             report_error()
             messages.error(
                 request,
-                _(
+                gettext(
                     "Could not activate your installation. "
                     "Please ensure your activation token is correct."
                 ),
@@ -224,7 +232,7 @@ def backups(request):
             settings_backup.delay()
             database_backup.delay()
             backup_service.delay(pk=request.POST["service"])
-            messages.success(request, _("Backup process triggered"))
+            messages.success(request, gettext("Backup process triggered"))
             return redirect("manage-backups")
 
     context = {
@@ -246,7 +254,7 @@ def handle_dismiss(request):
         else:
             error.delete()
     except (ValueError, KeyError, ConfigurationError.DoesNotExist):
-        messages.error(request, _("Could not dismiss the configuration error!"))
+        messages.error(request, gettext("Could not dismiss the configuration error!"))
     return redirect("manage-performance")
 
 
@@ -343,6 +351,10 @@ def alerts(request):
 @method_decorator(management_access, name="dispatch")
 class AdminUserList(UserList):
     template_name = "manage/users.html"
+    form_class = AdminUserSearchForm
+
+    def get_base_queryset(self):
+        return User.objects.all()
 
     def post(self, request, **kwargs):
         if "email" in request.POST:
@@ -352,7 +364,7 @@ class AdminUserList(UserList):
                 messages.success(
                     request,
                     format_html(
-                        escape(_("Created user account {}.")),
+                        escape(gettext("Created user account {}.")),
                         format_html(
                             '<a href="{}">{}</a>',
                             user.get_absolute_url(),
@@ -375,25 +387,27 @@ class AdminUserList(UserList):
         result["menu_items"] = MENU
         result["menu_page"] = "users"
         result["invite_form"] = invite_form
-        result["search_form"] = UserSearchForm()
+        result["search_form"] = AdminUserSearchForm()
         return result
 
 
 @management_access
 def users_check(request):
-    form = UserSearchForm(request.GET if request.GET else None)
+    data = request.GET
+    # Legacy links for care.weblate.org integration
+    if "email" in data and "q" not in data:
+        data = data.copy()
+        data["q"] = data["email"]
+    form = AdminUserSearchForm(data)
 
     user_list = None
     if form.is_valid():
-        email = form.cleaned_data["email"]
-        user_list = User.objects.filter(
-            Q(email=email)
-            | Q(social_auth__verifiedemail__email__iexact=email)
-            | Q(username=email)
-        ).distinct()
+        user_list = User.objects.search(
+            form.cleaned_data.get("q", ""), parser=form.fields["q"].parser
+        )[:2]
         if user_list.count() != 1:
             return redirect_param(
-                "manage-users", "?q={}".format(quote(form.cleaned_data["email"]))
+                "manage-users", "?q={}".format(quote(form.cleaned_data["q"]))
             )
         return redirect(user_list[0])
     return redirect("manage-users")
@@ -504,7 +518,7 @@ class TeamListView(FormMixin, ListView):
         return (
             super()
             .get_queryset()
-            .prefetch_related("languages", "projects")
+            .prefetch_related("languages", "projects", "components")
             .filter(defining_project=None)
             .annotate(Count("user"))
             .order()
