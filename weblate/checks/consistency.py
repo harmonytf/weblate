@@ -2,10 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 from functools import reduce
 
 from django.db.models import Count, Prefetch, Q, Value
-from django.db.models.functions import MD5
+from django.db.models.functions import MD5, Lower
 from django.utils.translation import gettext, gettext_lazy, ngettext
 
 from weblate.checks.base import TargetCheck
@@ -35,7 +37,7 @@ class PluralsCheck(TargetCheck):
         return "" in targets
 
     def check_single(self, source, target, unit):
-        """We don't check target strings here."""
+        """Target strings are checked in check_target_unit."""
         return False
 
 
@@ -55,7 +57,7 @@ class SamePluralsCheck(TargetCheck):
         return len(set(targets)) == 1
 
     def check_single(self, source, target, unit):
-        """We don't check target strings here."""
+        """Target strings are checked in check_target_unit."""
         return False
 
 
@@ -73,6 +75,12 @@ class ConsistencyCheck(TargetCheck):
     batch_project_wide = True
     skip_suggestions = True
 
+    def get_propagated_value(self, unit):
+        return unit.target
+
+    def get_propagated_units(self, unit, target: str | None = None):
+        return unit.same_source_units
+
     def check_target_unit(self, sources, targets, unit):
         component = unit.translation.component
         if not component.allow_translation_propagation:
@@ -82,7 +90,7 @@ class ConsistencyCheck(TargetCheck):
         if component.batch_checks:
             return self.handle_batch(unit, component)
 
-        for other in unit.same_source_units:
+        for other in self.get_propagated_units(unit):
             if unit.target == other.target:
                 continue
             if unit.translated or other.translated:
@@ -90,7 +98,7 @@ class ConsistencyCheck(TargetCheck):
         return False
 
     def check_single(self, source, target, unit):
-        """We don't check target strings here."""
+        """Target strings are checked in check_target_unit."""
         return False
 
     def check_component(self, component):
@@ -132,7 +140,12 @@ class ConsistencyCheck(TargetCheck):
 
 
 class ReusedCheck(TargetCheck):
-    """Check for reused translations."""
+    """
+    Check for reused translations.
+
+    This is skipped for languages with a single plural form as that causes too
+    many false positives, see https://github.com/WeblateOrg/weblate/issues/9450
+    """
 
     check_id = "reused"
     name = gettext_lazy("Reused translation")
@@ -141,35 +154,34 @@ class ReusedCheck(TargetCheck):
     batch_project_wide = True
     skip_suggestions = True
 
-    def get_same_target_units(self, unit):
+    def get_propagated_value(self, unit):
+        return unit.source
+
+    def get_propagated_units(self, unit, target: str | None = None):
         from weblate.trans.models import Unit
 
-        translation = unit.translation
-        component = translation.component
-        return Unit.objects.filter(
-            target__md5=MD5(Value(unit.target)),
-            translation__component__project_id=component.project_id,
-            translation__language_id=translation.language_id,
-            translation__component__source_language_id=component.source_language_id,
-            translation__component__allow_translation_propagation=True,
-            translation__plural_id=translation.plural_id,
-        ).exclude(source__md5=MD5(Value(unit.source)))
+        if target is None:
+            return unit.same_target_units
+        return Unit.objects.same_target(unit, target)
+
+    def should_skip(self, unit):
+        if unit.translation.plural.number <= 1 or not any(unit.get_target_plurals()):
+            return True
+        return super().should_skip(unit)
 
     def check_target_unit(self, sources, targets, unit):
         translation = unit.translation
         component = translation.component
-        if not component.allow_translation_propagation:
-            return False
 
         # Use last result if checks are batched
         if component.batch_checks:
             return self.handle_batch(unit, component)
 
-        return self.get_same_target_units(unit).exists()
+        return self.get_propagated_units(unit).exists()
 
     def get_description(self, check_obj):
         other_sources = (
-            self.get_same_target_units(check_obj.unit)
+            self.get_propagated_units(check_obj.unit)
             .values_list("source", flat=True)
             .distinct()
         )
@@ -179,7 +191,7 @@ class ReusedCheck(TargetCheck):
         ) % ", ".join(gettext("“%s”") % source for source in other_sources)
 
     def check_single(self, source, target, unit):
-        """We don't check target strings here."""
+        """Target strings are checked in check_target_unit."""
         return False
 
     def check_component(self, component):
@@ -190,6 +202,8 @@ class ReusedCheck(TargetCheck):
             translation__component__allow_translation_propagation=True,
             state__gte=STATE_TRANSLATED,
         )
+        # Lower has no effect here, but we want to utilize index
+        units = units.exclude(target__lower__md5=MD5(Lower(Value(""))))
 
         # List strings with different sources
         # Limit this to 100 strings, otherwise the resulting query is way too complex
@@ -278,7 +292,7 @@ class TranslatedCheck(TargetCheck):
         return False
 
     def check_single(self, source, target, unit):
-        """We don't check target strings here."""
+        """Target strings are checked in check_target_unit."""
         return False
 
     def get_fixup(self, unit):

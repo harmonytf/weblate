@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import os
 import re
 from collections import defaultdict
 from datetime import timedelta
 from importlib import import_module
-from typing import Optional
 
 import social_django.utils
 from django.conf import settings
@@ -95,19 +96,20 @@ from weblate.accounts.notifications import (
 from weblate.accounts.pipeline import EmailAlreadyAssociated, UsernameAlreadyAssociated
 from weblate.accounts.utils import remove_user
 from weblate.auth.forms import UserEditForm
-from weblate.auth.models import User, get_auth_keys
+from weblate.auth.models import Invitation, User, get_auth_keys
 from weblate.auth.utils import format_address
 from weblate.logger import LOGGER
-from weblate.trans.models import Change, Component, Suggestion, Translation
+from weblate.trans.models import Change, Component, Project, Suggestion, Translation
 from weblate.trans.models.component import translation_prefetch_tasks
 from weblate.trans.models.project import prefetch_project_flags
+from weblate.trans.util import redirect_next
 from weblate.utils import messages
 from weblate.utils.errors import add_breadcrumb, report_error
 from weblate.utils.ratelimit import check_rate_limit, session_ratelimit_post
 from weblate.utils.request import get_ip_address, get_user_agent
 from weblate.utils.stats import prefetch_stats
 from weblate.utils.token import get_token
-from weblate.utils.views import get_component, get_paginator, get_project
+from weblate.utils.views import get_paginator, parse_path
 
 CONTACT_TEMPLATE = """
 Message from %(name)s <%(email)s>:
@@ -116,7 +118,9 @@ Message from %(name)s <%(email)s>:
 """
 
 
-TEMPLATE_FOOTER = """
+MESSAGE_TEMPLATE = """
+{message}
+
 --
 User: {username}
 IP address: {address}
@@ -147,8 +151,6 @@ class EmailSentView(TemplateView):
         context["validity"] = settings.AUTH_TOKEN_VALID // 3600
         context["is_reset"] = False
         context["is_remove"] = False
-        # This view is not visible for invitation that's
-        # why don't handle user_invite here
         if self.request.flags["password_reset"]:
             context["title"] = gettext("Password reset")
             context["is_reset"] = True
@@ -167,7 +169,6 @@ class EmailSentView(TemplateView):
         request.flags = {
             "password_reset": request.session["password_reset"],
             "account_remove": request.session["account_remove"],
-            "user_invite": request.session["user_invite"],
         }
 
         # Remove session for not authenticated user here.
@@ -198,13 +199,11 @@ def mail_admins_contact(request, subject, message, context, sender, to):
 
     mail = EmailMultiAlternatives(
         subject=f"{settings.EMAIL_SUBJECT_PREFIX}{subject % context}",
-        body="{}\n{}".format(
-            message % context,
-            TEMPLATE_FOOTER.format(
-                address=get_ip_address(request),
-                agent=get_user_agent(request),
-                username=request.user.username,
-            ),
+        body=MESSAGE_TEMPLATE.format(
+            message=message % context,
+            address=get_ip_address(request),
+            agent=get_user_agent(request),
+            username=request.user.username,
         ),
         to=to,
         **kwargs,
@@ -302,7 +301,8 @@ def get_notification_forms(request):
 @never_cache
 @login_required
 def user_profile(request):
-    profile = request.user.profile
+    user = request.user
+    profile = user.profile
     profile.fixup_profile(request)
 
     form_classes = [
@@ -330,18 +330,25 @@ def user_profile(request):
 
             # Redirect after saving (and possibly changing language)
             return redirect_profile(request.POST.get("activetab"))
-    elif not request.user.has_usable_password() and "email" in all_backends:
+    elif not user.has_usable_password() and "email" in all_backends:
         messages.warning(request, render_to_string("accounts/password-warning.html"))
 
-    social = request.user.social_auth.all()
+    social = user.social_auth.all()
     social_names = [assoc.provider for assoc in social]
     new_backends = [
         x for x in sorted(all_backends) if x == "email" or x not in social_names
     ]
+    user_translation_ids = set(
+        Change.objects.filter(
+            user=user, timestamp__gte=timezone.now() - timedelta(days=90)
+        ).values_list("translation", flat=True)
+    )
     license_components = (
-        Component.objects.filter_access(request.user)
+        Component.objects.filter_access(user)
+        .filter(translation__id__in=user_translation_ids)
         .exclude(license="")
         .prefetch(alerts=False)
+        .distinct()
         .order_by("license")
     )
 
@@ -358,7 +365,7 @@ def user_profile(request):
             "userform": forms[6],
             "notification_forms": forms[7:],
             "all_forms": forms,
-            "user_groups": request.user.groups.prefetch_related(
+            "user_groups": user.groups.prefetch_related(
                 "roles", "projects", "languages", "components"
             ),
             "profile": profile,
@@ -367,7 +374,7 @@ def user_profile(request):
             "associated": social,
             "new_backends": new_backends,
             "has_email_auth": "email" in all_backends,
-            "auditlog": request.user.auditlog_set.order()[:20],
+            "auditlog": user.auditlog_set.order()[:20],
         },
     )
 
@@ -391,6 +398,9 @@ def user_remove(request):
         if confirm_form.is_valid():
             store_userid(request, remove=True)
             request.GET = {"email": request.user.email}
+            AuditLog.objects.create(
+                request.user, request, "removal-request", **request.GET
+            )
             return social_complete(request, "email")
     else:
         confirm_form = PasswordConfirmForm(request)
@@ -753,7 +763,6 @@ def fake_email_sent(request, reset=False):
     request.session["registration-email-sent"] = True
     request.session["password_reset"] = reset
     request.session["account_remove"] = False
-    request.session["user_invite"] = False
     return redirect("email-sent")
 
 
@@ -762,15 +771,32 @@ def register(request):
     """Registration form."""
     captcha = None
 
-    if request.method == "POST":
+    # Fetch invitation
+    invitation = None
+    initial = {}
+    if invitation_pk := request.session.get("invitation_link"):
+        try:
+            invitation = Invitation.objects.get(pk=invitation_pk)
+        except Invitation.DoesNotExist:
+            del request.session["invitation_link"]
+        else:
+            initial["email"] = invitation.email
+
+    # Allow registration at all?
+    registration_open = settings.REGISTRATION_OPEN or bool(invitation)
+
+    # Get list of allowed backends
+    backends = get_auth_keys()
+    if settings.REGISTRATION_ALLOW_BACKENDS and not invitation:
+        backends = backends & set(settings.REGISTRATION_ALLOW_BACKENDS)
+    elif not registration_open:
+        backends = set()
+
+    if request.method == "POST" and "email" in backends:
         form = RegistrationForm(request, request.POST)
         if settings.REGISTRATION_CAPTCHA:
             captcha = CaptchaForm(request, form, request.POST)
-        if (
-            (captcha is None or captcha.is_valid())
-            and form.is_valid()
-            and settings.REGISTRATION_OPEN
-        ):
+        if (captcha is None or captcha.is_valid()) and form.is_valid():
             if captcha:
                 captcha.cleanup_session(request)
             if form.cleaned_data["email_user"]:
@@ -781,18 +807,12 @@ def register(request):
             store_userid(request)
             return social_complete(request, "email")
     else:
-        form = RegistrationForm(request)
+        form = RegistrationForm(request, initial=initial)
         if settings.REGISTRATION_CAPTCHA:
             captcha = CaptchaForm(request)
 
-    backends = get_auth_keys()
-    if settings.REGISTRATION_ALLOW_BACKENDS:
-        backends = backends & set(settings.REGISTRATION_ALLOW_BACKENDS)
-    elif not settings.REGISTRATION_OPEN:
-        backends = set()
-
     # Redirect if there is only one backend
-    if len(backends) == 1 and "email" not in backends:
+    if len(backends) == 1 and "email" not in backends and not invitation:
         return redirect_single(request, backends.pop())
 
     return render(
@@ -804,6 +824,7 @@ def register(request):
             "title": gettext("User registration"),
             "form": form,
             "captcha_form": captcha,
+            "invitation": invitation,
         },
     )
 
@@ -916,7 +937,7 @@ def reset_password_set(request):
     )
 
 
-def get_registration_hint(email: str) -> Optional[str]:
+def get_registration_hint(email: str) -> str | None:
     domain = email.rsplit("@", 1)[-1]
     return settings.REGISTRATION_HINTS.get(domain)
 
@@ -950,7 +971,7 @@ def reset_password(request):
                     form.cleaned_data["email_user"], request, "reset-request"
                 )
                 if not audit.check_rate_limit(request):
-                    store_userid(request, True)
+                    store_userid(request, reset=True)
                     return social_complete(request, "email")
             else:
                 email = form.cleaned_data["email"]
@@ -1006,40 +1027,42 @@ def userdata(request):
 
 @require_POST
 @login_required
-def watch(request, project, component=None):
+def watch(request, path):
     user = request.user
-    if component:
-        redirect_obj = component_obj = get_component(request, project, component)
-        obj = component_obj.project
+    redirect_obj = obj = parse_path(request, path, (Component, Project))
+    if isinstance(obj, Component):
+        project = obj.project
+
         # Mute project level subscriptions
-        mute_real(user, scope=SCOPE_PROJECT, component=None, project=obj)
+        mute_real(user, scope=SCOPE_PROJECT, component=None, project=project)
         # Manually enable component level subscriptions
         for default_subscription in user.subscription_set.filter(scope=SCOPE_WATCHED):
             subscription, created = user.subscription_set.get_or_create(
                 notification=default_subscription.notification,
                 scope=SCOPE_COMPONENT,
-                component=component_obj,
+                component=obj,
                 project=None,
                 defaults={"frequency": default_subscription.frequency},
             )
             if not created and subscription.frequency != default_subscription.frequency:
                 subscription.frequency = default_subscription.frequency
                 subscription.save(update_fields=["frequency"])
-    else:
-        redirect_obj = obj = get_project(request, project)
+
+        # Watch project
+        obj = project
     user.profile.watched.add(obj)
-    return redirect(redirect_obj)
+    return redirect_next(request.GET.get("next"), redirect_obj)
 
 
 @require_POST
 @login_required
-def unwatch(request, project):
-    obj = get_project(request, project)
+def unwatch(request, path):
+    obj = parse_path(request, path, (Project,))
     request.user.profile.watched.remove(obj)
     request.user.subscription_set.filter(
         Q(project=obj) | Q(component__project=obj)
     ).delete()
-    return redirect(obj)
+    return redirect_next(request.GET.get("next"), obj)
 
 
 def mute_real(user, **kwargs):
@@ -1058,18 +1081,13 @@ def mute_real(user, **kwargs):
 
 @require_POST
 @login_required
-def mute_component(request, project, component):
-    obj = get_component(request, project, component)
-    mute_real(request.user, scope=SCOPE_COMPONENT, component=obj, project=None)
-    return redirect(
-        "{}?notify_component={}#notifications".format(reverse("profile"), obj.pk)
-    )
-
-
-@require_POST
-@login_required
-def mute_project(request, project):
-    obj = get_project(request, project)
+def mute(request, path):
+    obj = parse_path(request, path, (Component, Project))
+    if isinstance(obj, Component):
+        mute_real(request.user, scope=SCOPE_COMPONENT, component=obj, project=None)
+        return redirect(
+            "{}?notify_component={}#notifications".format(reverse("profile"), obj.pk)
+        )
     mute_real(request.user, scope=SCOPE_PROJECT, component=None, project=obj)
     return redirect(
         "{}?notify_project={}#notifications".format(reverse("profile"), obj.pk)
@@ -1102,12 +1120,11 @@ class SuggestionView(ListView):
         return result
 
 
-def store_userid(request, reset=False, remove=False, invite=False):
+def store_userid(request, *, reset: bool = False, remove: bool = False):
     """Store user ID in the session."""
     request.session["social_auth_user"] = request.user.pk
     request.session["password_reset"] = reset
     request.session["account_remove"] = remove
-    request.session["user_invite"] = invite
 
 
 @require_POST
@@ -1310,6 +1327,7 @@ def social_complete(request, backend):  # noqa: C901
             ),
         )
     except ValidationError as error:
+        report_error()
         return registration_fail(request, str(error))
 
 

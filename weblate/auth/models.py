@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import re
+import uuid
 from collections import defaultdict
-from functools import lru_cache
+from functools import cache as functools_cache
 from itertools import chain
-from typing import Optional, Set
 
 import sentry_sdk
 from appconf import AppConf
@@ -14,7 +16,7 @@ from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import Group as DjangoGroup
 from django.db import models
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 from django.http import Http404
@@ -43,9 +45,10 @@ from weblate.auth.utils import (
     migrate_permissions,
     migrate_roles,
 )
+from weblate.lang.models import Language
 from weblate.trans.defines import FULLNAME_LENGTH, USERNAME_LENGTH
 from weblate.trans.fields import RegexField
-from weblate.trans.models import ComponentList, Project
+from weblate.trans.models import Component, ComponentList, Project
 from weblate.utils.decorators import disable_for_loaddata
 from weblate.utils.fields import EmailField, UsernameField
 from weblate.utils.search import parse_query
@@ -247,12 +250,16 @@ class UserQuerySet(models.QuerySet):
 
     def search(self, query: str, parser: str = "user", **context):
         """High level wrapper for searching."""
-        result = self.filter(parse_query(query, parser=parser, **context))
+        if parser == "plain":
+            result = self.filter(
+                Q(username__icontains=query) | Q(full_name__icontains=query)
+            )
+        else:
+            result = self.filter(parse_query(query, parser=parser, **context))
         return result.distinct()
 
 
-# TODO: Use functools.cache when Python 3.9+
-@lru_cache(maxsize=None)
+@functools_cache
 def get_anonymous():
     """Return an anonymous user."""
     return User.objects.select_related("profile").get(
@@ -362,11 +369,11 @@ class User(AbstractBaseUser):
     )
     groups = GroupManyToManyField(
         Group,
-        verbose_name=gettext_lazy("Groups"),
+        verbose_name=gettext_lazy("Teams"),
         blank=True,
         help_text=gettext_lazy(
             "The user is granted all permissions included in "
-            "membership of these groups."
+            "membership of these teams."
         ),
     )
 
@@ -590,10 +597,18 @@ class User(AbstractBaseUser):
         with sentry_sdk.start_span(op="permissions", description=self.username):
             for group in self.groups.prefetch_related(
                 "roles__permissions",
-                "componentlists__components",
-                "components",
-                "projects",
-                "languages",
+                Prefetch(
+                    "componentlists__components",
+                    queryset=Component.objects.only("id", "project_id"),
+                ),
+                Prefetch(
+                    "components",
+                    queryset=Component.objects.all().only("id", "project_id"),
+                ),
+                Prefetch(
+                    "projects", queryset=Project.objects.only("id", "access_control")
+                ),
+                Prefetch("languages", queryset=Language.objects.only("id")),
             ):
                 if group.language_selection == SELECTION_ALL:
                     languages = None
@@ -698,7 +713,7 @@ class User(AbstractBaseUser):
             return self.username
         return self.full_name
 
-    def get_author_name(self, address: Optional[str] = None) -> str:
+    def get_author_name(self, address: str | None = None) -> str:
         """Return formatted author name with e-mail."""
         return format_address(
             self.get_visible_name(), address or self.profile.get_commit_email()
@@ -709,7 +724,7 @@ class AutoGroup(models.Model):
     match = RegexField(
         verbose_name=gettext_lazy("Regular expression for e-mail address"),
         max_length=200,
-        default="^.*$",
+        default="^$",
         help_text=gettext_lazy(
             "Users with e-mail addresses found to match will be added to this group."
         ),
@@ -733,6 +748,7 @@ class UserBlock(models.Model):
         User,
         verbose_name=gettext_lazy("User to block"),
         on_delete=models.deletion.CASCADE,
+        db_index=False,
     )
     project = models.ForeignKey(
         Project, verbose_name=gettext_lazy("Project"), on_delete=models.deletion.CASCADE
@@ -839,7 +855,7 @@ def setup_project_groups(
     sender,
     instance,
     created: bool = False,
-    new_roles: Optional[Set[str]] = None,
+    new_roles: set[str] | None = None,
     **kwargs,
 ):
     """Set up group objects upon saving project."""
@@ -899,6 +915,84 @@ def setup_project_groups(
             continue
         group.projects.add(instance)
         group.roles.add(Role.objects.get(name=ACL_GROUPS[group_name]))
+
+
+class Invitation(models.Model):
+    """
+    User invitation store.
+
+    Either user or e-mail attribute is set, this is to invite current and new users.
+    """
+
+    uuid = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    author = models.ForeignKey(
+        User, on_delete=models.deletion.CASCADE, related_name="created_invitation_set"
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.deletion.CASCADE,
+        null=True,
+        verbose_name=gettext_lazy("User to add"),
+        help_text=gettext_lazy(
+            "Please type in an existing Weblate account name or e-mail address."
+        ),
+    )
+    group = models.ForeignKey(
+        Group,
+        verbose_name=gettext_lazy("Team"),
+        help_text=gettext_lazy(
+            "The user is granted all permissions included in "
+            "membership of these teams."
+        ),
+        on_delete=models.deletion.CASCADE,
+    )
+    email = EmailField(
+        gettext_lazy("E-mail"),
+        blank=True,
+    )
+    is_superuser = models.BooleanField(
+        gettext_lazy("Superuser status"),
+        default=False,
+        help_text=gettext_lazy("User has all possible permissions."),
+    )
+
+    def __str__(self):
+        return f"invitation {self.uuid} for {self.user or self.email} to {self.group}"
+
+    def get_absolute_url(self):
+        return reverse("invitation", kwargs={"pk": self.uuid})
+
+    def send_email(self):
+        from weblate.accounts.notifications import send_notification_email
+
+        send_notification_email(
+            None,
+            [self.email] if self.email else [self.user.email],
+            "invite",
+            info=f"{self}",
+            context={"invitation": self, "validity": settings.AUTH_TOKEN_VALID // 3600},
+        )
+
+    def accept(self, request, user: User):
+        from weblate.accounts.models import AuditLog
+
+        if self.user and self.user != user:
+            raise ValueError("User mismatch on accept!")
+
+        user.groups.add(self.group)
+
+        if self.is_superuser:
+            user.is_superuser = True
+            user.save(update_fields=["is_superuser"])
+
+        AuditLog.objects.create(
+            user=user,
+            request=request,
+            activity="accepted",
+            username=self.author.username,
+        )
+        self.delete()
 
 
 class WeblateAuthConf(AppConf):

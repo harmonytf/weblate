@@ -59,7 +59,7 @@ Authentication tokens
 
    Project scoped tokens were introduced in the 4.10 release.
 
-Each user has his personal access token which can be obtained in the user
+Each user has a personal access token which can be obtained in the user
 profile. Newly generated user tokens have the ``wlu_`` prefix.
 
 It is possible to create project scoped tokens for API access to given project
@@ -155,6 +155,17 @@ form submission (:mimetype:`application/x-www-form-urlencoded`) or as JSON
         -H "Content-Type: application/json" \
         -H "Authorization: Token TOKEN" \
         http://example.com/api/components/hello/weblate/repository/
+
+.. _api-category:
+
+Components and categories
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To access a component which is nested inside a :ref:`category`, you need to URL
+encode the category name into a component name separated with a slash. For
+example ``usage`` placed in a ``docs`` category needs to be used as
+``docs%252Fusage``. Full URL in this case would be for example
+``https://example.com/api/components/hello/docs%252Fusage/repository/``.
 
 .. _api-rate:
 
@@ -275,6 +286,7 @@ Users
     :>json boolean is_active: whether the user is active
     :>json boolean is_bot: whether the user is bot (used for project scoped tokens)
     :>json string date_joined: date the user is created
+    :>json string last_login: date the user last signed in
     :>json array groups: link to associated groups; see :http:get:`/api/groups/(int:id)/`
 
     **Example JSON data:**
@@ -785,8 +797,6 @@ Projects
 
 .. http:post:: /api/projects/
 
-    .. versionadded:: 3.9
-
     Creates a new project.
 
     :param name: Project name
@@ -848,8 +858,6 @@ Projects
     :type project: string
 
 .. http:delete:: /api/projects/(string:project)/
-
-    .. versionadded:: 3.9
 
     Deletes a project.
 
@@ -945,8 +953,6 @@ Projects
     :>json array results: array of component objects; see :http:get:`/api/components/(string:project)/(string:component)/`
 
 .. http:post:: /api/projects/(string:project)/components/
-
-    .. versionadded:: 3.9
 
     .. versionchanged:: 4.3
 
@@ -1107,8 +1113,6 @@ Projects
 
     Returns paginated statistics for all languages within a project.
 
-    .. versionadded:: 3.8
-
     :param project: Project URL slug
     :type project: string
     :>json array results: array of translation statistics objects
@@ -1125,14 +1129,21 @@ Projects
 
     Returns statistics for a project.
 
-    .. versionadded:: 3.8
-
     :param project: Project URL slug
     :type project: string
 
     .. seealso::
 
        Returned attributes are described in :ref:`api-statistics`.
+
+.. http:get:: /api/projects/(string:project)/categories/
+
+   .. versionadded:: 5.0
+
+    Returns statistics for a project. See :http:get:`/api/categories/(int:id)/` for field definitions.
+
+    :param project: Project URL slug
+    :type project: string
 
 Components
 ++++++++++
@@ -1354,8 +1365,6 @@ Components
     :<json string vcs: version control system
 
 .. http:delete:: /api/components/(string:project)/(string:component)/
-
-    .. versionadded:: 3.9
 
     Deletes a component.
 
@@ -1815,8 +1824,6 @@ Translations
 
 
 .. http:delete:: /api/translations/(string:project)/(string:component)/(string:language)/
-
-    .. versionadded:: 3.9
 
     Deletes a translation.
 
@@ -2361,6 +2368,17 @@ Component lists
     :param slug: Component list slug
     :type slug: string
 
+.. http:get:: /api/component-lists/(str:slug)/components/
+
+   .. versionadded:: 5.0.1
+
+    List components in a component list.
+
+    :param slug: Component list slug
+    :type slug: string
+    :form string component_id: Component ID
+    :>json array results: array of component objects; see :http:get:`/api/components/(string:project)/(string:component)/`
+
 .. http:post:: /api/component-lists/(str:slug)/components/
 
     Associate component with a component list.
@@ -2485,6 +2503,61 @@ Search
    :>json str url: Web URL of the matched item.
    :>json str category: Category of the matched item.
 
+Categories
+++++++++++
+
+.. http:get:: /api/categories/
+
+   .. versionadded:: 5.0
+
+   Lists available categories. See :http:get:`/api/categories/(int:id)/` for field definitions.
+
+.. http:post:: /api/categories/
+
+   .. versionadded:: 5.0
+
+   Creates a new category. See :http:get:`/api/categories/(int:id)/` for field definitions.
+
+.. http:get:: /api/categories/(int:id)/
+
+   .. versionadded:: 5.0
+
+   :param id: Category ID
+   :type id: int
+   :>json str name: Name of category.
+   :>json str slug: Slug of category.
+   :>json str project: Link to a project.
+   :>json str category: Link to a parent category.
+
+.. http:patch:: /api/categories/(int:id)/
+
+   .. versionadded:: 5.0
+
+    Edit partial information about category.
+
+    :param id: Category ID
+    :type id: int
+    :>json object configuration: Optional category configuration
+
+.. http:put:: /api/categories/(int:id)/
+
+   .. versionadded:: 5.0
+
+    Edit full information about category.
+
+    :param id: Category ID
+    :type id: int
+    :>json object configuration: Optional category configuration
+
+.. http:delete:: /api/categories/(int:id)/
+
+   .. versionadded:: 5.0
+
+    Delete category.
+
+    :param id: Category ID
+    :type id: int
+
 .. _hooks:
 
 Notification hooks
@@ -2567,8 +2640,6 @@ update individual repositories; see
 
 .. http:post:: /hooks/pagure/
 
-    .. versionadded:: 3.3
-
     Special hook for handling Pagure notifications and automatically
     updating matching components.
 
@@ -2582,8 +2653,6 @@ update individual repositories; see
             For enabling hooks for whole Weblate
 
 .. http:post:: /hooks/azure/
-
-    .. versionadded:: 3.8
 
     Special hook for handling Azure DevOps notifications and automatically
     updating matching components.
@@ -2604,8 +2673,6 @@ update individual repositories; see
 
 .. http:post:: /hooks/gitea/
 
-    .. versionadded:: 3.9
-
     Special hook for handling Gitea Webhook notifications and automatically
     updating matching components.
 
@@ -2619,8 +2686,6 @@ update individual repositories; see
             For enabling hooks for whole Weblate
 
 .. http:post:: /hooks/gitee/
-
-    .. versionadded:: 3.9
 
     Special hook for handling Gitee Webhook notifications and automatically
     updating matching components.

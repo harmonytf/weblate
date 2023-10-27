@@ -279,6 +279,7 @@ SOCIAL_AUTH_PIPELINE = (
     "weblate.accounts.pipeline.user_full_name",
     "weblate.accounts.pipeline.store_email",
     "weblate.accounts.pipeline.notify_connect",
+    "weblate.accounts.pipeline.handle_invite",
     "weblate.accounts.pipeline.password_reset",
 )
 SOCIAL_AUTH_DISCONNECT_PIPELINE = (
@@ -621,7 +622,7 @@ SESSION_COOKIE_HTTPONLY = True
 # SSL redirect
 SECURE_SSL_REDIRECT = ENABLE_HTTPS
 SECURE_SSL_HOST = SITE_DOMAIN
-# Sent referrrer only for same origin links
+# Sent referrer only for same origin links
 SECURE_REFERRER_POLICY = "same-origin"
 # SSL redirect URL exemption list
 SECURE_REDIRECT_EXEMPT = (r"healthz/$",)  # Allowing HTTP access to health check
@@ -668,7 +669,7 @@ ANONYMOUS_USER_NAME = "anonymous"
 # Reverse proxy settings
 IP_PROXY_HEADER = "HTTP_X_FORWARDED_FOR"
 IP_BEHIND_REVERSE_PROXY = False
-IP_PROXY_OFFSET = 0
+IP_PROXY_OFFSET = -1
 
 # Sending HTML in mails
 EMAIL_SEND_HTML = True
@@ -756,6 +757,12 @@ CRISPY_TEMPLATE_PACK = "bootstrap3"
 #     "weblate.checks.source.LongUntranslatedCheck",
 #     "weblate.checks.format.MultipleUnnamedFormatsCheck",
 #     "weblate.checks.glossary.GlossaryCheck",
+#     "weblate.checks.fluent.syntax.FluentSourceSyntaxCheck",
+#     "weblate.checks.fluent.syntax.FluentTargetSyntaxCheck",
+#     "weblate.checks.fluent.parts.FluentPartsCheck",
+#     "weblate.checks.fluent.references.FluentReferencesCheck",
+#     "weblate.checks.fluent.inner_html.FluentSourceInnerHTMLCheck",
+#     "weblate.checks.fluent.inner_html.FluentTargetInnerHTMLCheck",
 # )
 
 # List of automatic fixups
@@ -813,14 +820,13 @@ ALLOWED_HOSTS = ["*"]
 # Configuration for caching
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
+        "BACKEND": "redis_lock.django_cache.RedisCache",
         "LOCATION": "redis://127.0.0.1:6379/1",
         # If redis is running on same host as Weblate, you might
         # want to use unix sockets instead:
         # "LOCATION": "unix:///var/run/redis/redis.sock?db=1",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "PARSER_CLASS": "redis.connection.HiredisParser",
             # If you set password here, adjust CELERY_BROKER_URL as well
             "PASSWORD": None,
             "CONNECTION_POOL_KWARGS": {},
@@ -873,6 +879,7 @@ FONTS_CDN_URL = None
 # Django compressor offline mode
 COMPRESS_OFFLINE = False
 COMPRESS_OFFLINE_CONTEXT = "weblate.utils.compress.offline_context"
+COMPRESS_CSS_HASHING_METHOD = "content"
 
 # Require login for all URLs
 if REQUIRE_LOGIN:

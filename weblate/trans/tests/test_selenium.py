@@ -25,7 +25,6 @@ from selenium.webdriver.support.expected_conditions import (
 )
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
-import weblate.screenshots.views
 from weblate.fonts.tests.utils import FONT
 from weblate.lang.models import Language
 from weblate.trans.models import Change, Component, Project, Unit
@@ -36,6 +35,7 @@ from weblate.trans.tests.utils import (
     create_test_billing,
     create_test_user,
     get_test_file,
+    social_core_override_settings,
 )
 from weblate.utils.db import using_postgresql
 from weblate.vcs.ssh import get_key_data
@@ -101,7 +101,7 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
         # Build Chrome driver
         options = Options()
         # Run headless
-        options.headless = True
+        options.add_argument("--headless=new")
         # Seems to help in some corner cases, see
         # https://stackoverflow.com/a/50642913/225718
         options.add_argument("--no-sandbox")
@@ -119,7 +119,7 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
 
         # Force English locales, the --lang and accept_language settings does not
         # work in some cases
-        backup_lang = os.environ.get("LANG", None)
+        backup_lang = os.environ.get("LANG")
         os.environ["LANG"] = "en_US.UTF-8"
 
         try:
@@ -434,7 +434,7 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
             self.click("Statistics")
         self.screenshot("activity.png")
 
-    @override_settings(AUTHENTICATION_BACKENDS=TEST_BACKENDS)
+    @social_core_override_settings(AUTHENTICATION_BACKENDS=TEST_BACKENDS)
     def test_auth_backends(self):
         user = self.do_login()
         user.social_auth.create(provider="google-oauth2", uid=user.email)
@@ -524,11 +524,10 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
             element.submit()
 
         # Perform OCR
-        if weblate.screenshots.views.HAS_OCR:
-            self.click(htmlid="screenshots-auto")
-            wait_search()
+        self.click(htmlid="screenshots-auto")
+        wait_search()
 
-            self.screenshot("screenshot-ocr.png")
+        self.screenshot("screenshot-ocr.png")
 
         # Add string manually
         self.driver.find_element(By.ID, "search-input").send_keys(f"{text!r}")
@@ -962,7 +961,7 @@ class SeleniumTests(BaseLiveServerTestCase, RegistrationTestMixin, TempDirMixin)
 
         # Click on add component
         with self.wait_for_page_load():
-            self.click(self.driver.find_element(By.CLASS_NAME, "project-add-component"))
+            self.click(self.driver.find_element(By.ID, "list-add-button"))
 
         # Add component
         self.driver.find_element(By.ID, "id_name").send_keys("Language names")

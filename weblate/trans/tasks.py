@@ -2,11 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import os
 import time
 from datetime import datetime, timedelta
 from glob import glob
-from typing import List, Optional
 
 from celery import current_task
 from celery.schedules import crontab
@@ -25,6 +26,7 @@ from weblate.machinery.base import MachineTranslationError
 from weblate.trans.autotranslate import AutoTranslate
 from weblate.trans.exceptions import FileParseError
 from weblate.trans.models import (
+    Category,
     Change,
     Comment,
     Component,
@@ -36,14 +38,14 @@ from weblate.utils.celery import app
 from weblate.utils.data import data_dir
 from weblate.utils.errors import report_error
 from weblate.utils.files import remove_tree
-from weblate.utils.lock import WeblateLockTimeout
+from weblate.utils.lock import WeblateLockTimeoutError
 from weblate.utils.stats import prefetch_stats
-from weblate.vcs.base import RepositoryException
+from weblate.vcs.base import RepositoryError
 
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -65,14 +67,14 @@ def perform_update(cls, pk, auto=False, obj=None):
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
 def perform_load(
     pk: int,
     force: bool = False,
-    langs: Optional[List[str]] = None,
+    langs: list[str] | None = None,
     changed_template: bool = False,
     from_link: bool = False,
 ):
@@ -84,7 +86,7 @@ def perform_load(
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -95,7 +97,7 @@ def perform_commit(pk, *args):
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -119,7 +121,7 @@ def update_component_stats(pk):
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -284,7 +286,7 @@ def repository_alerts(threshold=settings.REPOSITORY_ALERT_THRESHOLD):
                 component.add_alert("RepositoryChanges")
             else:
                 component.delete_alert("RepositoryChanges")
-        except RepositoryException as error:
+        except RepositoryError as error:
             report_error(
                 cause="Could not check repository status", project=component.project
             )
@@ -348,7 +350,28 @@ def component_removal(pk, uid):
 
 
 @app.task(trail=False)
-def project_removal(pk: int, uid: Optional[int]):
+def category_removal(pk, uid):
+    user = User.objects.get(pk=uid)
+    try:
+        category = Category.objects.get(pk=pk)
+    except Category.DoesNotExist:
+        return
+    for child in category.category_set.all():
+        category_removal(child.pk, uid)
+    for component in category.component_set.all():
+        component_removal(component.pk, uid)
+    Change.objects.create(
+        project=category.project,
+        action=Change.ACTION_REMOVE_CATEGORY,
+        target=category.slug,
+        user=user,
+        author=user,
+    )
+    category.delete()
+
+
+@app.task(trail=False)
+def project_removal(pk: int, uid: int | None):
     user = get_anonymous() if uid is None else User.objects.get(pk=uid)
     try:
         project = Project.objects.get(pk=pk)
@@ -367,7 +390,7 @@ def project_removal(pk: int, uid: Optional[int]):
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -377,10 +400,10 @@ def auto_translate(
     mode: str,
     filter_type: str,
     auto_source: str,
-    component: Optional[int],
-    engines: List[str],
+    component: int | None,
+    engines: list[str],
     threshold: int,
-    translation: Optional[Translation] = None,
+    translation: Translation | None = None,
     component_wide: bool = False,
 ):
     if translation is None:
@@ -428,7 +451,7 @@ def auto_translate(
 
 @app.task(
     trail=False,
-    autoretry_for=(WeblateLockTimeout,),
+    autoretry_for=(WeblateLockTimeoutError,),
     retry_backoff=600,
     retry_backoff_max=3600,
 )
@@ -437,9 +460,9 @@ def auto_translate_component(
     mode: str,
     filter_type: str,
     auto_source: str,
-    engines: List[str],
+    engines: list[str],
     threshold: int,
-    component: Optional[int],
+    component: int | None,
 ):
     component_obj = Component.objects.get(pk=component_id)
 
@@ -513,10 +536,12 @@ def update_checks(pk: int, update_token: str, update_state: bool = False):
 
 @app.task(trail=False)
 def daily_update_checks():
-    components = Component.objects.all()
-    today = timezone.now().date()
     if settings.BACKGROUND_TASKS == "never":
         return
+    today = timezone.now()
+    components = Component.objects.annotate(hourmod=F("id") % 24).filter(
+        hourmod=today.hour
+    )
     if settings.BACKGROUND_TASKS == "monthly":
         components = components.annotate(idmod=F("id") % 30).filter(idmod=today.day)
     elif settings.BACKGROUND_TASKS == "weekly":
@@ -581,7 +606,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(hour=3, minute=5), update_remotes.s(), name="update-remotes"
     )
     sender.add_periodic_task(
-        crontab(hour=3, minute=30), daily_update_checks.s(), name="daily-update-checks"
+        crontab(minute=30), daily_update_checks.s(), name="daily-update-checks"
     )
     sender.add_periodic_task(
         crontab(hour=3, minute=45), repository_alerts.s(), name="repository-alerts"

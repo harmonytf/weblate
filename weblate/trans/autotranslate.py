@@ -2,13 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from typing import List, Optional
+from __future__ import annotations
 
 from celery import current_task
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models.functions import MD5
+from django.db.models.functions import MD5, Lower
 
 from weblate.machinery.models import MACHINERY
 from weblate.trans.models import Change, Component, Suggestion, Unit
@@ -79,7 +79,7 @@ class AutoTranslate:
                 self.user.profile.increase_count("translated", self.updated)
 
     @transaction.atomic
-    def process_others(self, source: Optional[int]):
+    def process_others(self, source: int | None):
         """Perform automatic translation based on other components."""
         kwargs = {
             "translation__plural": self.translation.plural,
@@ -120,9 +120,9 @@ class AutoTranslate:
         translations = {
             source: split_plural(target)
             for source, state, target in sources.filter(
-                source__md5__in=self.get_units()
-                .annotate(source__md5=MD5("source"))
-                .values("source__md5")
+                source__lower__md5__in=self.get_units()
+                .annotate(source__lower__md5=MD5(Lower("source")))
+                .values("source__lower__md5")
             ).values_list("source", "state", "target")
         }
 
@@ -190,7 +190,7 @@ class AutoTranslate:
             if unit.machinery and any(unit.machinery["quality"])
         }
 
-    def process_mt(self, engines: List[str], threshold: int):
+    def process_mt(self, engines: list[str], threshold: int):
         """Perform automatic translation based on machine translation."""
         translations = self.fetch_mt(engines, int(threshold))
 

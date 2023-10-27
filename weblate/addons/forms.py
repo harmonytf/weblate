@@ -345,7 +345,7 @@ class DiscoveryForm(BaseAddonForm):
             # Perform form validation
             self.full_clean()
             # Show preview if form was submitted
-            if self.cleaned_data["preview"]:
+            if self.cleaned_data.get("preview"):
                 self.fields["confirm"].widget = forms.CheckboxInput()
                 self.helper.layout.insert(0, Field("confirm"))
                 created, matched, deleted = self.discovery.perform(
@@ -372,6 +372,25 @@ class DiscoveryForm(BaseAddonForm):
         )
 
     def clean(self):
+        if file_format := self.cleaned_data.get("file_format"):
+            is_monolingual = FILE_FORMATS[file_format].monolingual
+            if is_monolingual and not self.cleaned_data["base_file_template"]:
+                raise forms.ValidationError(
+                    {
+                        "base_file_template": gettext(
+                            "You can not use a monolingual translation without a base file."
+                        )
+                    }
+                )
+            if is_monolingual is False and self.cleaned_data["base_file_template"]:
+                raise forms.ValidationError(
+                    {
+                        "base_file_template": gettext(
+                            "You can not use a base file for bilingual translation."
+                        )
+                    }
+                )
+
         self.cleaned_data["preview"] = False
 
         # There are some other errors or the form was loaded from db
@@ -504,7 +523,7 @@ class CDNJSForm(BaseAddonForm):
             CSSSelector(self.cleaned_data["css_selector"], translator="html")
         except Exception as error:
             raise forms.ValidationError(
-                gettext("Failed to parse CSS selector: %s") % error
+                gettext("Could not parse CSS selector: %s") % error
             )
         return self.cleaned_data["css_selector"]
 

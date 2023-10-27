@@ -12,8 +12,6 @@ from django.utils.translation import gettext_lazy
 from weblate_language_data.ambiguous import AMBIGUOUS
 from weblate_language_data.countries import DEFAULT_LANGS
 
-from weblate.utils.fields import JSONField
-
 ALERTS = {}
 ALERTS_IMPORT = set()
 
@@ -27,12 +25,14 @@ def register(cls):
 
 
 class Alert(models.Model):
-    component = models.ForeignKey("Component", on_delete=models.deletion.CASCADE)
+    component = models.ForeignKey(
+        "Component", on_delete=models.deletion.CASCADE, db_index=False
+    )
     timestamp = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     name = models.CharField(max_length=150)
     dismissed = models.BooleanField(default=False, db_index=True)
-    details = JSONField(default=dict)
+    details = models.JSONField(default=dict)
 
     class Meta:
         unique_together = [("component", "name")]
@@ -127,7 +127,7 @@ class MultiAlert(BaseAlert):
 
         processors = (
             ("language_code", "language", Language.objects.all(), "code"),
-            ("unit_pk", "unit", Unit.objects.prefetch(), "pk"),
+            ("unit_pk", "unit", Unit.objects.prefetch().prefetch_full(), "pk"),
         )
         for key, target, base, lookup in processors:
             # Extract list to fetch

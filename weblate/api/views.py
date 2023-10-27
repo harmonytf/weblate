@@ -2,8 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import os.path
-from typing import Optional, Tuple
+from urllib.parse import unquote
 
 from celery.result import AsyncResult
 from django.conf import settings
@@ -43,6 +45,7 @@ from weblate.api.serializers import (
     AddonSerializer,
     BasicUserSerializer,
     BilingualUnitSerializer,
+    CategorySerializer,
     ChangeSerializer,
     ComponentListSerializer,
     ComponentSerializer,
@@ -76,6 +79,7 @@ from weblate.screenshots.models import Screenshot
 from weblate.trans.exceptions import FileParseError
 from weblate.trans.forms import AutoForm
 from weblate.trans.models import (
+    Category,
     Change,
     Component,
     ComponentList,
@@ -84,7 +88,12 @@ from weblate.trans.models import (
     Translation,
     Unit,
 )
-from weblate.trans.tasks import auto_translate, component_removal, project_removal
+from weblate.trans.tasks import (
+    auto_translate,
+    category_removal,
+    component_removal,
+    project_removal,
+)
 from weblate.trans.views.files import download_multi
 from weblate.utils.celery import get_queue_stats, get_task_progress, is_task_ready
 from weblate.utils.docs import get_doc_url
@@ -155,15 +164,37 @@ class MultipleFieldMixin:
         queryset = self.get_queryset()
         # Apply any filter backends
         queryset = self.filter_queryset(queryset)
+        # Generate lookup
         lookup = {}
-        for field in self.lookup_fields:
-            lookup[field] = self.kwargs[field]
+        category_path = ""
+        for field in reversed(self.lookup_fields):
+            if field not in ("component__slug", "slug"):
+                lookup[field] = self.kwargs[field]
+            else:
+                category_prefix = field[:-4]
+                was_category = False
+                was_slug = False
+                # Fetch component part for possible category
+                for category in reversed(unquote(self.kwargs[field]).split("/")):
+                    if not was_slug:
+                        # Component filter
+                        lookup[field] = category
+                        was_slug = True
+                    else:
+                        # Strip "slug" from category field
+                        category_path = f"category__{category_path}"
+                        lookup[f"{category_prefix}{category_path}slug"] = category
+                        was_category = True
+                if not was_category:
+                    # No category
+                    lookup[f"{category_prefix}category"] = None
+
         # Lookup the object
         return get_object_or_404(queryset, **lookup)
 
 
 class DownloadViewSet(viewsets.ReadOnlyModelViewSet):
-    raw_urls: Tuple[str, ...] = ()
+    raw_urls: tuple[str, ...] = ()
     raw_formats = EXPORTERS
 
     def perform_content_negotiation(self, request, force=False):
@@ -686,6 +717,17 @@ class ProjectViewSet(
         return self.get_paginated_response(serializer.data)
 
     @action(detail=True, methods=["get"])
+    def categories(self, request, **kwargs):
+        obj = self.get_object()
+
+        queryset = obj.category_set.order_by("id")
+        page = self.paginate_queryset(queryset)
+
+        serializer = CategorySerializer(page, many=True, context={"request": request})
+
+        return self.get_paginated_response(serializer.data)
+
+    @action(detail=True, methods=["get"])
     def statistics(self, request, **kwargs):
         obj = self.get_object()
 
@@ -707,7 +749,7 @@ class ProjectViewSet(
     def changes(self, request, **kwargs):
         obj = self.get_object()
 
-        queryset = Change.objects.prefetch().filter(project=obj).order_by("id")
+        queryset = obj.change_set.prefetch().order()
         queryset = ChangesFilterBackend().filter_queryset(request, queryset, self)
         page = self.paginate_queryset(queryset)
 
@@ -765,9 +807,9 @@ class ComponentViewSet(
 
     def get_queryset(self):
         return (
-            Component.objects.prefetch()
+            Component.objects.prefetch(defer=False)
             .filter_access(self.request.user)
-            .prefetch_related("source_language")
+            .prefetch_related("source_language", "addon_set")
             .order_by("id")
         )
 
@@ -824,14 +866,19 @@ class ComponentViewSet(
             try:
                 language = Language.objects.get(code=language_code)
             except Language.DoesNotExist:
-                raise ValidationError(
-                    f"No language code {language_code!r} found!", "invalid"
-                )
+                raise ValidationError(f"No language code {language_code!r} found!")
 
             if not obj.can_add_new_language(request.user):
                 self.permission_denied(request, message=obj.new_lang_error_message)
 
             translation = obj.add_new_language(language, request)
+            if translation is None:
+                storage = get_messages(request)
+                error = f"Could not add {language_code!r}!"
+                if storage:
+                    error = "\n".join(m.message for m in storage)
+                raise ValidationError(error)
+
             serializer = TranslationSerializer(
                 translation, context={"request": request}, remove_fields=("component",)
             )
@@ -877,7 +924,7 @@ class ComponentViewSet(
     def changes(self, request, **kwargs):
         obj = self.get_object()
 
-        queryset = Change.objects.prefetch().filter(component=obj).order_by("id")
+        queryset = obj.change_set.prefetch().order()
         queryset = ChangesFilterBackend().filter_queryset(request, queryset, self)
         page = self.paginate_queryset(queryset)
 
@@ -1034,7 +1081,7 @@ class TranslationViewSet(MultipleFieldMixin, WeblateViewSet, DestroyModelMixin):
                 parse_query(query_string)
             except Exception as error:
                 report_error(project=obj.component.project)
-                raise ValidationError({"q": f"Failed to parse query string: {error}"})
+                raise ValidationError({"q": f"Could not parse query string: {error}"})
             try:
                 return download_translation_file(request, obj, fmt, query_string)
             except Http404 as error:
@@ -1095,7 +1142,7 @@ class TranslationViewSet(MultipleFieldMixin, WeblateViewSet, DestroyModelMixin):
     def changes(self, request, **kwargs):
         obj = self.get_object()
 
-        queryset = Change.objects.prefetch().filter(translation=obj).order_by("id")
+        queryset = obj.change_set.prefetch().order()
         queryset = ChangesFilterBackend().filter_queryset(request, queryset, self)
         page = self.paginate_queryset(queryset)
 
@@ -1130,9 +1177,9 @@ class TranslationViewSet(MultipleFieldMixin, WeblateViewSet, DestroyModelMixin):
             parse_query(query_string)
         except Exception as error:
             report_error()
-            raise ValidationError(f"Failed to parse query string: {error}")
+            raise ValidationError(f"Could not parse query string: {error}")
 
-        queryset = obj.unit_set.search(query_string).order_by("id").prefetch()
+        queryset = obj.unit_set.search(query_string).order_by("id").prefetch_full()
         page = self.paginate_queryset(queryset)
 
         serializer = UnitSerializer(page, many=True, context={"request": request})
@@ -1191,8 +1238,8 @@ class LanguageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if self.request.user.has_perm("language.edit"):
-            return Language.objects.order_by("id")
-        return Language.objects.have_translation().order_by("id")
+            return Language.objects.order_by("id").prefetch()
+        return Language.objects.have_translation().order_by("id").prefetch()
 
     def perm_check(self, request):
         if not request.user.has_perm("language.edit"):
@@ -1236,7 +1283,12 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
         return serializer_class(instance, *args, **kwargs)
 
     def get_queryset(self):
-        return Unit.objects.filter_access(self.request.user).order_by("id")
+        return (
+            Unit.objects.filter_access(self.request.user)
+            .prefetch()
+            .prefetch_full()
+            .order_by("id")
+        )
 
     def filter_queryset(self, queryset):
         result = super().filter_queryset(queryset)
@@ -1245,7 +1297,7 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
             parse_query(query_string)
         except Exception as error:
             report_error()
-            raise ValidationError(f"Failed to parse query string: {error}")
+            raise ValidationError(f"Could not parse query string: {error}")
         if query_string:
             result = result.search(query_string)
         return result
@@ -1331,7 +1383,7 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
         except FileParseError as error:
             obj.translation.component.update_import_alerts(delete=False)
             return Response(
-                data={"error": f"Failed to remove the string: {error}"},
+                data={"error": f"Could not remove the string: {error}"},
                 status=HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(status=HTTP_204_NO_CONTENT)
@@ -1475,7 +1527,7 @@ class ChangeViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = (ChangesFilterBackend,)
 
     def get_queryset(self):
-        return Change.objects.last_changes(self.request.user).order_by("id")
+        return Change.objects.last_changes(self.request.user)
 
     def paginate_queryset(self, queryset):
         result = super().paginate_queryset(queryset)
@@ -1495,6 +1547,7 @@ class ComponentListViewSet(viewsets.ModelViewSet):
                 Q(components__project__in=self.request.user.allowed_projects)
                 | Q(components__isnull=True)
             )
+            .prefetch_related("components__project", "autocomponentlist_set")
             .order_by("id")
             .distinct()
         )
@@ -1515,25 +1568,35 @@ class ComponentListViewSet(viewsets.ModelViewSet):
         self.perm_check(request)
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post", "get"])
     def components(self, request, **kwargs):
         obj = self.get_object()
-        self.perm_check(request)
+        if request.method == "POST":
+            self.perm_check(request)
 
-        if "component_id" not in request.data:
-            raise ValidationError({"component_id": "This field is required."})
+            if "component_id" not in request.data:
+                raise ValidationError({"component_id": "This field is required."})
 
-        try:
-            component = Component.objects.filter_access(self.request.user).get(
-                pk=int(request.data["component_id"]),
-            )
-        except (Component.DoesNotExist, ValueError) as error:
-            raise ValidationError({"component_id": str(error)})
+            try:
+                component = Component.objects.filter_access(self.request.user).get(
+                    pk=int(request.data["component_id"]),
+                )
+            except (Component.DoesNotExist, ValueError) as error:
+                raise ValidationError({"component_id": str(error)})
 
-        obj.components.add(component)
-        serializer = self.serializer_class(obj, context={"request": request})
+            obj.components.add(component)
+            serializer = self.serializer_class(obj, context={"request": request})
 
-        return Response(serializer.data, status=HTTP_200_OK)
+            return Response(serializer.data, status=HTTP_200_OK)
+
+        queryset = (
+            obj.components.filter_access(self.request.user).prefetch().order_by("id")
+        )
+        page = self.paginate_queryset(queryset)
+
+        serializer = ComponentSerializer(page, many=True, context={"request": request})
+
+        return self.get_paginated_response(serializer.data)
 
     @action(
         detail=True,
@@ -1550,6 +1613,53 @@ class ComponentListViewSet(viewsets.ModelViewSet):
             raise Http404(str(error))
         obj.components.remove(component)
         return Response(status=HTTP_204_NO_CONTENT)
+
+
+class CategoryViewSet(viewsets.ModelViewSet):
+    """Category API."""
+
+    queryset = Category.objects.none()
+    serializer_class = CategorySerializer
+    lookup_field = "pk"
+
+    def get_queryset(self):
+        return Category.objects.filter(
+            project__in=self.request.user.allowed_projects
+        ).order_by("id")
+
+    def perm_check(self, request, instance):
+        if not request.user.has_perm("project.edit", instance):
+            self.permission_denied(request, "Can not manage categories")
+
+    def update(self, request, *args, **kwargs):
+        self.perm_check(request, self.get_object())
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perm_check(request, instance)
+        category_removal.delay(instance.pk, request.user.pk)
+        return Response(status=HTTP_204_NO_CONTENT)
+
+    def perform_create(self, serializer):
+        if not self.request.user.has_perm(
+            "project.edit", serializer.validated_data["project"]
+        ):
+            self.permission_denied(
+                self.request, "Can not manage categories in this project"
+            )
+        serializer.save()
+
+    def perform_update(self, serializer):
+        if not self.request.user.has_perm(
+            "project.edit",
+            serializer.validated_data.get("project", serializer.instance.project),
+        ):
+            self.permission_denied(
+                self.request, "Can not manage categories in this project"
+            )
+        serializer.instance.acting_user = self.request.user
+        serializer.save()
 
 
 class Metrics(APIView):
@@ -1587,47 +1697,56 @@ class Search(APIView):
         user = request.user
         projects = user.allowed_projects
         components = Component.objects.filter(project__in=projects)
+        category = Category.objects.filter(project__in=projects)
         results = []
         query = request.GET.get("q")
         if query:
-            for project in projects.search(query)[:5]:
-                results.append(
-                    {
-                        "url": project.get_absolute_url(),
-                        "name": project.name,
-                        "category": gettext("Project"),
-                    }
-                )
-            for component in components.search(query)[:5]:
-                results.append(
-                    {
-                        "url": component.get_absolute_url(),
-                        "name": str(component),
-                        "category": gettext("Component"),
-                    }
-                )
-            for user in User.objects.search(query)[:5]:
-                results.append(
-                    {
-                        "url": user.get_absolute_url(),
-                        "name": user.username,
-                        "category": gettext("User"),
-                    }
-                )
-            for language in Language.objects.search(query)[:5]:
-                results.append(
-                    {
-                        "url": language.get_absolute_url(),
-                        "name": language.name,
-                        "category": gettext("Language"),
-                    }
-                )
+            results.extend(
+                {
+                    "url": project.get_absolute_url(),
+                    "name": project.name,
+                    "category": gettext("Project"),
+                }
+                for project in projects.search(query)[:5]
+            )
+            results.extend(
+                {
+                    "url": category.get_absolute_url(),
+                    "name": str(category),
+                    "category": gettext("Category"),
+                }
+                for category in category.search(query)[:5]
+            )
+            results.extend(
+                {
+                    "url": component.get_absolute_url(),
+                    "name": str(component),
+                    "category": gettext("Component"),
+                }
+                for component in components.search(query)[:5]
+            )
+            results.extend(
+                {
+                    "url": user.get_absolute_url(),
+                    "name": user.username,
+                    "category": gettext("User"),
+                }
+                for user in User.objects.search(query, parser="plain")[:5]
+            )
+            results.extend(
+                {
+                    "url": language.get_absolute_url(),
+                    "name": language.name,
+                    "category": gettext("Language"),
+                }
+                for language in Language.objects.search(query)[:5]
+            )
 
         return Response(results)
 
 
 class TasksViewSet(ViewSet):
-    def get_task(self, request, pk, permission: Optional[str] = None) -> AsyncResult:
+    def get_task(self, request, pk, permission: str | None = None) -> AsyncResult:
         task = AsyncResult(str(pk))
         result = task.result
         if task.state == "PENDING" or isinstance(result, Exception):

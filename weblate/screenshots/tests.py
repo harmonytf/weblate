@@ -7,22 +7,19 @@ import tempfile
 from difflib import get_close_matches
 from itertools import chain
 from shutil import copyfile
-from unittest import SkipTest
 
 from django.core.files import File
 from django.urls import reverse
 from django.utils import timezone
-from PIL import Image
 from rest_framework.test import APITestCase
 
-import weblate.screenshots.views
+from weblate.lang.models import Language
 from weblate.screenshots.models import Screenshot
-from weblate.screenshots.views import PyTessBaseAPI, ocr_get_strings
+from weblate.screenshots.views import get_tesseract, ocr_get_strings
 from weblate.trans.tests.test_models import RepoTestCase
 from weblate.trans.tests.test_views import FixtureTestCase
 from weblate.trans.tests.utils import create_test_user, get_test_file
 from weblate.utils.db import using_postgresql
-from weblate.utils.locale import c_locale
 
 TEST_SCREENSHOT = get_test_file("screenshot.png")
 
@@ -51,7 +48,9 @@ class ViewTest(FixtureTestCase):
             }
             data.update(kwargs)
             return self.client.post(
-                reverse("screenshots", kwargs=self.kw_component), data, follow=True
+                reverse("screenshots", kwargs=self.kw_component),
+                data,
+                follow=True,
             )
 
     def test_upload_denied(self):
@@ -67,9 +66,9 @@ class ViewTest(FixtureTestCase):
     def test_upload_fail(self):
         self.make_manager()
         response = self.do_upload(name="")
-        self.assertContains(response, "Failed to upload screenshot")
+        self.assertContains(response, "Could not upload screenshot")
         response = self.do_upload(image="")
-        self.assertContains(response, "Failed to upload screenshot")
+        self.assertContains(response, "Could not upload screenshot")
 
     def test_upload_source(self):
         self.make_manager()
@@ -151,15 +150,9 @@ class ViewTest(FixtureTestCase):
         self.assertEqual(screenshot.units.count(), 0)
 
     def test_ocr_backend(self):
-        if not weblate.screenshots.views.HAS_OCR:
-            raise SkipTest("OCR not supported")
-
-        # Convert to greyscale
-        image = Image.open(TEST_SCREENSHOT).convert("L")
-
         # Extract strings
-        with c_locale(), PyTessBaseAPI() as api:
-            result = list(ocr_get_strings(api, image))
+        with get_tesseract(Language.objects.get(code="en")) as api:
+            result = list(ocr_get_strings(api, TEST_SCREENSHOT, 72))
 
         # Reverse logic would make sense here, but we want to use same order as in views.py
         matches = list(
@@ -170,12 +163,10 @@ class ViewTest(FixtureTestCase):
         )
 
         self.assertTrue(
-            matches, f"Failed to find string in tesseract results: {result}"
+            matches, f"Could not find string in tesseract results: {result}"
         )
 
     def test_ocr(self):
-        if not weblate.screenshots.views.HAS_OCR:
-            raise SkipTest("OCR not supported")
         self.make_manager()
         self.do_upload()
         screenshot = Screenshot.objects.all()[0]
@@ -193,24 +184,6 @@ class ViewTest(FixtureTestCase):
             data["results"],
             "OCR recognition not working, no recognized strings found",
         )
-
-    def test_ocr_disabled(self):
-        orig = weblate.screenshots.views.HAS_OCR
-        weblate.screenshots.views.HAS_OCR = False
-        try:
-            self.make_manager()
-            self.do_upload()
-            screenshot = Screenshot.objects.all()[0]
-
-            # Search for string
-            response = self.client.post(
-                reverse("screenshot-js-ocr", kwargs={"pk": screenshot.pk})
-            )
-            data = response.json()
-
-            self.assertEqual(data["responseCode"], 500)
-        finally:
-            weblate.screenshots.views.HAS_OCR = orig
 
     def test_translation_manipulations(self):
         self.make_manager()

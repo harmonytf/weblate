@@ -1257,6 +1257,16 @@ $(function () {
     },
   });
 
+  document.querySelectorAll("[data-visibility]").forEach((toggle) => {
+    toggle.addEventListener("click", (event) => {
+      document
+        .querySelectorAll(toggle.getAttribute("data-visibility"))
+        .forEach((element) => {
+          element.classList.toggle("visible");
+        });
+    });
+  });
+
   /* Warn users that they do not want to use developer console in most cases */
   console.log(
     "%c%s",

@@ -25,6 +25,8 @@ FORBIDDEN_URL_SCHEMES = {
 
 
 class InvalidString(str):
+    __slots__ = ()
+
     def __mod__(self, other):
         raise TemplateSyntaxError(gettext('Undefined variable: "%s"') % other)
 
@@ -75,15 +77,14 @@ def render_template(template, **kwargs):
             reverse(
                 "widget-image",
                 kwargs={
-                    "project": component.project.slug,
-                    "component": component.slug,
+                    "path": component.get_url_path(),
                     "widget": "horizontal",
                     "color": "auto",
                     "extension": "svg",
                 },
             )
         )
-        if component.linked_childs:
+        if component.pk and component.linked_childs:
             kwargs["component_linked_childs"] = [
                 {
                     "project_name": linked.project.name,
@@ -116,7 +117,9 @@ def validate_render(value, **kwargs):
     try:
         return render_template(value, **kwargs)
     except Exception as err:
-        raise ValidationError(gettext("Failed to render template: {}").format(err))
+        raise ValidationError(
+            gettext("Could not render template: {}").format(err)
+        ) from err
 
 
 def validate_render_component(value, translation=None, **kwargs):

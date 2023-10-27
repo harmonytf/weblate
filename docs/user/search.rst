@@ -6,14 +6,12 @@ Searching
 Searching for strings
 +++++++++++++++++++++
 
-.. versionadded:: 3.9
-
 Advanced queries using boolean operations, parentheses, or field specific lookup can be used to
 find the strings you want.
 
 When no field is defined, the lookup happens on source, target, and context strings.
 
-.. image:: /screenshots/search.png
+.. image:: /screenshots/search.webp
 
 Simple search
 -------------
@@ -153,14 +151,14 @@ Predefined queries
 
 You can select out of predefined queries on the search page, this allows you to quickly access the most frequent searches:
 
-.. image:: /screenshots/query-dropdown.png
+.. image:: /screenshots/query-dropdown.webp
 
 Ordering the results
 --------------------
 
 There are many options to order the strings according to your needs:
 
-.. image:: /screenshots/query-sort.png
+.. image:: /screenshots/query-sort.webp
 
 
 Searching for users

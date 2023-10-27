@@ -2,17 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import locale
 import os
 import sys
 from types import GeneratorType
-from typing import Any, Dict
+from typing import Any
 from urllib.parse import urlparse
 
+import django.shortcuts
 from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect, resolve_url
-from django.shortcuts import render as django_render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext, gettext_lazy
 from lxml import etree
@@ -112,7 +114,7 @@ def translation_percent(translated, total, zero_complete=True):
     return perc
 
 
-def get_clean_env(extra: Dict = None, extra_path: str = None):
+def get_clean_env(extra: dict | None = None, extra_path: str | None = None):
     """Return cleaned up environment for subprocess execution."""
     environ = {
         "LANG": "C.UTF-8",
@@ -215,9 +217,9 @@ def get_project_description(project):
 def render(
     request,
     template_name: str,
-    context: Dict[str, Any] = None,
-    content_type: str = None,
-    status: int = None,
+    context: dict[str, Any] | None = None,
+    content_type: str | None = None,
+    status: int | None = None,
     using=None,
 ):
     """Wrapper around Django render to extend context."""
@@ -225,7 +227,8 @@ def render(
         context = {}
     if "project" in context and context["project"] is not None:
         context["description"] = get_project_description(context["project"])
-    return django_render(
+
+    return django.shortcuts.render(
         request,
         template_name=template_name,
         context=context,

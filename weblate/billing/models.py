@@ -10,9 +10,10 @@ from appconf import AppConf
 from django.conf import settings
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db.models import Prefetch, Q
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
@@ -23,7 +24,6 @@ from django.utils.translation import gettext, gettext_lazy, ngettext
 from weblate.auth.models import User
 from weblate.trans.models import Component, Project
 from weblate.utils.decorators import disable_for_loaddata
-from weblate.utils.fields import JSONField
 from weblate.utils.stats import prefetch_stats
 
 
@@ -164,14 +164,12 @@ class Billing(models.Model):
     expiry = models.DateTimeField(
         blank=True,
         null=True,
-        default=None,
         verbose_name=gettext_lazy("Trial expiry date"),
         help_text="After expiry removal with 15 days grace period is scheduled.",
     )
     removal = models.DateTimeField(
         blank=True,
         null=True,
-        default=None,
         verbose_name=gettext_lazy("Scheduled removal"),
         help_text="This is automatically set after trial expiry.",
     )
@@ -184,7 +182,7 @@ class Billing(models.Model):
     )
     # Payment detailed information, used for integration
     # with payment processor
-    payment = JSONField(editable=False, default=dict)
+    payment = models.JSONField(editable=False, default=dict, encoder=DjangoJSONEncoder)
 
     objects = BillingManager.from_queryset(BillingQuerySet)()
 
@@ -501,7 +499,7 @@ class Invoice(models.Model):
     note = models.TextField(blank=True)
     # Payment detailed information, used for integration
     # with payment processor
-    payment = JSONField(editable=False, default=dict)
+    payment = models.JSONField(editable=False, default=dict)
 
     objects = InvoiceQuerySet.as_manager()
 
@@ -510,9 +508,7 @@ class Invoice(models.Model):
         verbose_name_plural = "Invoices"
 
     def __str__(self):
-        return "{} - {}: {}".format(
-            self.start, self.end, self.billing if self.billing_id else None
-        )
+        return f"{self.start} - {self.end}: {self.billing if self.billing_id else None}"
 
     @cached_property
     def filename(self):
@@ -561,7 +557,28 @@ class Invoice(models.Model):
 def update_project_bill(sender, instance, **kwargs):
     if isinstance(instance, Component):
         instance = instance.project
-    for billing in instance.billing_set.iterator():
+    for billing in instance.billing_set.all():
+        billing.check_limits()
+
+
+@receiver(pre_delete, sender=Project)
+@receiver(pre_delete, sender=Component)
+@disable_for_loaddata
+def record_project_bill(sender, instance, **kwargs):
+    if isinstance(instance, Component):
+        instance = instance.project
+    # Track billings to update for delete_project_bill
+    instance.billings_to_update = list(instance.billing_set.all())
+
+
+@receiver(post_delete, sender=Project)
+@receiver(post_delete, sender=Component)
+@disable_for_loaddata
+def delete_project_bill(sender, instance, **kwargs):
+    if isinstance(instance, Component):
+        instance = instance.project
+    # This is set in record_project_bill
+    for billing in instance.billings_to_update:
         billing.check_limits()
 
 

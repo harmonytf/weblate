@@ -5,12 +5,14 @@
 
 """Translate Toolkit based file-format wrappers."""
 
+from __future__ import annotations
+
 import importlib
 import inspect
 import os
 import re
 import subprocess
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Any, Callable
 
 from django.core.exceptions import ValidationError
 from django.utils.functional import cached_property
@@ -65,7 +67,7 @@ class TTKitUnit(TranslationUnit):
     @cached_property
     def locations(self):
         """Return a comma-separated list of locations."""
-        return ", ".join(x for x in self.mainunit.getlocations() if x is not None)
+        return ", ".join(self.mainunit.getlocations())
 
     @cached_property
     def source(self):
@@ -135,7 +137,7 @@ class TTKitUnit(TranslationUnit):
     def is_readonly(self):
         return not self.mainunit.istranslatable()
 
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         """Set translation unit target."""
         self._invalidate_target()
         if isinstance(target, list):
@@ -209,7 +211,7 @@ class KeyValueUnit(TTKitUnit):
             return not self.unit.isfuzzy() and self.unit.value
         return self.unit.istranslated()
 
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         """Set translation unit target."""
         super().set_target(target)
         # Propagate to value so that searializing of empty values works correctly
@@ -233,9 +235,10 @@ class TTKitFormat(TranslationFormat):
         self,
         storefile,
         template_store=None,
-        language_code: Optional[str] = None,
-        source_language: Optional[str] = None,
+        language_code: str | None = None,
+        source_language: str | None = None,
         is_template: bool = False,
+        existing_units: list[Any] | None = None,
     ):
         super().__init__(
             storefile,
@@ -243,6 +246,7 @@ class TTKitFormat(TranslationFormat):
             language_code=language_code,
             is_template=is_template,
             source_language=source_language,
+            existing_units=existing_units,
         )
 
     @staticmethod
@@ -364,15 +368,15 @@ class TTKitFormat(TranslationFormat):
         return unit
 
     def create_unit_key(
-        self, key: str, source: Union[str, List[str], multistring]
-    ) -> Union[str, multistring]:
+        self, key: str, source: str | list[str] | multistring
+    ) -> str | multistring:
         return key
 
     def create_unit(
         self,
         key: str,
-        source: Union[str, List[str]],
-        target: Optional[Union[str, List[str]]] = None,
+        source: str | list[str],
+        target: str | list[str] | None = None,
     ):
         # Make sure target is a string
         if target is None:
@@ -439,7 +443,7 @@ class TTKitFormat(TranslationFormat):
         filename: str,
         language: str,
         base: str,
-        callback: Optional[Callable] = None,
+        callback: Callable | None = None,
     ):
         """Handle creation of new translation file."""
         if base:
@@ -460,7 +464,7 @@ class TTKitFormat(TranslationFormat):
         cls,
         base: str,
         monolingual: bool,
-        errors: Optional[List] = None,
+        errors: list | None = None,
         fast: bool = False,
     ) -> bool:
         """Check whether base is valid."""
@@ -487,7 +491,7 @@ class TTKitFormat(TranslationFormat):
             if not unit.isobsolete() and not unit.isheader()
         )
 
-    def delete_unit(self, ttkit_unit) -> Optional[str]:
+    def delete_unit(self, ttkit_unit) -> str | None:
         self.store.removeunit(ttkit_unit)
 
 
@@ -583,7 +587,7 @@ class PoMonoUnit(PoUnit):
                 result.append(context)
         return "\n".join(result)
 
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         """Set translation unit target."""
         # Add blank msgid_plural to store plural
         if isinstance(target, (list, multistring)) and not self.unit.hasplural():
@@ -635,11 +639,6 @@ class XliffUnit(TTKitUnit):
         if resname:
             return resname
         return self.mainunit.getid().replace(ID_SEPARATOR, "///")
-
-    @cached_property
-    def locations(self):
-        """Return comma separated list of locations."""
-        return ""
 
     def is_translated(self):
         """
@@ -711,7 +710,7 @@ class XliffUnit(TTKitUnit):
             if xmlnode is not None:
                 xmlnode.getparent().remove(xmlnode)
 
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         """Set translation unit target."""
         if self.get_unit_node(self.unit, "source") is None:
             # Make sure source element is present, otherwise it breaks
@@ -791,7 +790,7 @@ class RichXliffUnit(XliffUnit):
         flags.merge("xml-text")
         return flags.format()
 
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         """Set translation unit target."""
         self._invalidate_target()
         # Delete the empty target element
@@ -1186,8 +1185,8 @@ class PoMonoFormat(BasePoFormat):
     set_context_bilingual = False
 
     def create_unit_key(
-        self, key: str, source: Union[str, List[str], multistring]
-    ) -> Union[str, multistring]:
+        self, key: str, source: str | list[str] | multistring
+    ) -> str | multistring:
         if isinstance(source, (list, multistring)):
             return multistring([key, f"{key}_plural"])
         return key
@@ -1203,7 +1202,7 @@ class TSFormat(TTKitFormat):
 
 
 class XliffFormat(TTKitFormat):
-    name = gettext_lazy("XLIFF translation file")
+    name = gettext_lazy("XLIFF 1.2 translation file")
     format_id = "plainxliff"
     loader = xlifffile
     autoload = ()
@@ -1223,8 +1222,8 @@ class XliffFormat(TTKitFormat):
     def create_unit(
         self,
         key: str,
-        source: Union[str, List[str]],
-        target: Optional[Union[str, List[str]]] = None,
+        source: str | list[str],
+        target: str | list[str] | None = None,
     ):
         unit = super().create_unit(key, source, target)
         unit.marktranslated()
@@ -1233,14 +1232,14 @@ class XliffFormat(TTKitFormat):
 
 
 class RichXliffFormat(XliffFormat):
-    name = gettext_lazy("XLIFF with placeables support")
+    name = gettext_lazy("XLIFF 1.2 with placeables support")
     format_id = "xliff"
-    autoload: Tuple[str, ...] = ("*.xlf", "*.xliff", "*.sdlxliff", "*.mxliff")
+    autoload: tuple[str, ...] = ("*.xlf", "*.xliff", "*.sdlxliff", "*.mxliff")
     unit_class = RichXliffUnit
 
 
 class PoXliffFormat(XliffFormat):
-    name = gettext_lazy("XLIFF with gettext extensions")
+    name = gettext_lazy("XLIFF 1.2 with gettext extensions")
     format_id = "poxliff"
     autoload = ("*.poxliff",)
     loader = PoXliffFile
@@ -1273,7 +1272,7 @@ class StringsFormat(PropertiesBaseFormat):
     name = gettext_lazy("iOS strings (UTF-16)")
     format_id = "strings"
     loader = ("properties", "stringsfile")
-    new_translation: Optional[Union[str, bytes]] = "\n".encode("utf-16")
+    new_translation: str | bytes | None = "\n".encode("utf-16")
     autoload = ("*.strings",)
     language_format = "bcp"
 
@@ -1403,7 +1402,7 @@ class DictStoreMixin:
         try:
             id_class.from_string(context)
         except Exception as error:
-            raise ValidationError(gettext("Failed to parse the key: %s") % error)
+            raise ValidationError(gettext("Could not parse the key: %s") % error)
 
 
 class JSONFormat(DictStoreMixin, TTKitFormat):
@@ -1411,7 +1410,7 @@ class JSONFormat(DictStoreMixin, TTKitFormat):
     format_id = "json"
     loader = JsonFile
     unit_class = JSONUnit
-    autoload: Tuple[str, ...] = ("*.json",)
+    autoload: tuple[str, ...] = ("*.json",)
     new_translation = "{}\n"
     set_context_bilingual = False
 
@@ -1493,16 +1492,17 @@ class CSVFormat(TTKitFormat):
     format_id = "csv"
     loader = ("csvl10n", "csvfile")
     unit_class = CSVUnit
-    autoload: Tuple[str, ...] = ("*.csv",)
+    autoload: tuple[str, ...] = ("*.csv",)
     force_encoding = "auto"
 
     def __init__(
         self,
         storefile,
         template_store=None,
-        language_code: Optional[str] = None,
-        source_language: Optional[str] = None,
+        language_code: str | None = None,
+        source_language: str | None = None,
         is_template: bool = False,
+        existing_units: list[Any] | None = None,
     ):
         super().__init__(
             storefile,
@@ -1510,6 +1510,7 @@ class CSVFormat(TTKitFormat):
             language_code=language_code,
             source_language=source_language,
             is_template=is_template,
+            existing_units=existing_units,
         )
         # Remove template if the file contains source, this is needed
         # for import, but probably usable elsewhere as well
@@ -1584,7 +1585,7 @@ class CSVUtf8Format(CSVFormat):
 class CSVSimpleFormat(CSVFormat):
     name = gettext_lazy("Simple CSV file")
     format_id = "csv-simple"
-    autoload: Tuple[str, ...] = ("*.txt",)
+    autoload: tuple[str, ...] = ("*.txt",)
     force_encoding = "auto"
 
     @staticmethod
@@ -1618,7 +1619,7 @@ class YAMLFormat(DictStoreMixin, TTKitFormat):
     format_id = "yaml"
     loader = ("yaml", "YAMLFile")
     unit_class = MonolingualSimpleUnit
-    autoload: Tuple[str, ...] = ("*.pyml",)
+    autoload: tuple[str, ...] = ("*.pyml",)
     new_translation = "{}\n"
 
     @staticmethod
@@ -1771,8 +1772,8 @@ class INIFormat(TTKitFormat):
     def create_unit(
         self,
         key: str,
-        source: Union[str, List[str]],
-        target: Optional[Union[str, List[str]]] = None,
+        source: str | list[str],
+        target: str | list[str] | None = None,
     ):
         unit = super().create_unit(key, source, target)
         unit.location = key
@@ -1935,7 +1936,7 @@ class TBXUnit(TTKitUnit):
 
     @cached_property
     def explanation(self) -> str:
-        return self._get_notes("definition")
+        return self._get_notes("translator")
 
     def set_source_explanation(self, explanation: str):
         if explanation or self.source_explanation:
@@ -1944,14 +1945,14 @@ class TBXUnit(TTKitUnit):
 
     @cached_property
     def source_explanation(self) -> str:
-        return self._get_notes("source-explanation")
+        return self._get_notes("definition")
 
 
 class TBXFormat(TTKitFormat):
     name = gettext_lazy("TermBase eXchange file")
     format_id = "tbx"
     loader = tbxfile
-    autoload: Tuple[str, ...] = ("*.tbx",)
+    autoload: tuple[str, ...] = ("*.tbx",)
     new_translation = tbxfile.XMLskeleton
     unit_class = TBXUnit
     create_empty_bilingual: bool = True
@@ -1963,9 +1964,10 @@ class TBXFormat(TTKitFormat):
         self,
         storefile,
         template_store=None,
-        language_code: Optional[str] = None,
-        source_language: Optional[str] = None,
+        language_code: str | None = None,
+        source_language: str | None = None,
         is_template: bool = False,
+        existing_units: list[Any] | None = None,
     ):
         super().__init__(
             storefile,
@@ -1973,6 +1975,7 @@ class TBXFormat(TTKitFormat):
             language_code=language_code,
             is_template=is_template,
             source_language=source_language,
+            existing_units=existing_units,
         )
         # Add language header if not present
         self.store.addheader()
@@ -1992,7 +1995,7 @@ class StringsdictFormat(DictStoreMixin, TTKitFormat):
     format_id = "stringsdict"
     loader = ("stringsdict", "StringsDictFile")
     unit_class = MonolingualSimpleUnit
-    autoload: Tuple[str, ...] = ("*.stringsdict",)
+    autoload: tuple[str, ...] = ("*.stringsdict",)
     new_translation = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -2021,7 +2024,7 @@ class StringsdictFormat(DictStoreMixin, TTKitFormat):
         from weblate.lang.models import Plural
 
         return language.plural_set.get_or_create(
-            source=Plural.SOURCE_STRINGSDICT,
+            source=Plural.SOURCE_CLDR_ZERO,
             defaults={
                 "formula": FORMULA_WITH_ZERO[plural.formula],
                 "number": plural.number + 1,
@@ -2036,7 +2039,7 @@ class StringsdictFormat(DictStoreMixin, TTKitFormat):
 
 
 class FluentUnit(MonolingualSimpleUnit):
-    def set_target(self, target: Union[str, List[str]]):
+    def set_target(self, target: str | list[str]):
         super().set_target(target)
         self.unit.source = target
         # This triggers serialization discovering any syntax issues
@@ -2044,11 +2047,9 @@ class FluentUnit(MonolingualSimpleUnit):
 
     @cached_property
     def flags(self):
-        placeables = self.mainunit.getplaceables()
-        if not placeables:
-            return ""
-        placeables.insert(0, "placeholders")
-        return Flags.format_flag(tuple(placeables))
+        flags = Flags()
+        flags.set_value("fluent-type", self.mainunit.fluent_type)
+        return flags.format()
 
 
 class FluentFormat(TTKitFormat):
@@ -2056,8 +2057,19 @@ class FluentFormat(TTKitFormat):
     format_id = "fluent"
     loader = ("fluent", "FluentFile")
     unit_class = FluentUnit
-    autoload: Tuple[str, ...] = ("*.ftl",)
+    autoload: tuple[str, ...] = ("*.ftl",)
     new_translation = ""
+    check_flags = (
+        "fluent-source-syntax",
+        "fluent-target-syntax",
+        "fluent-parts",
+        "fluent-references",
+        "fluent-source-inner-html",
+        "fluent-target-inner-html",
+        # Ignore xml check since we have inner-html checks.
+        "ignore-xml-tags",
+        "ignore-xml-invalid",
+    )
 
     @staticmethod
     def mimetype():
@@ -2072,8 +2084,8 @@ class FluentFormat(TTKitFormat):
     def create_unit(
         self,
         key: str,
-        source: Union[str, List[str]],
-        target: Optional[Union[str, List[str]]] = None,
+        source: str | list[str],
+        target: str | list[str] | None = None,
     ):
         unit = super().create_unit(key, source, target)
         unit.source = unit.target

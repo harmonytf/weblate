@@ -1,15 +1,12 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# Jorge Maldonado Ventura <jorgesumle@freakspot.net>, 2019, 2021.
-# Anonymous <noreply@weblate.org>, 2020.
-# Jakub Fabijan <animatorzPolski@gmail.com>, 2021.
+# Copyright © Michal Čihař <michal@weblate.org>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 msgid ""
 msgstr ""
-"Project-Id-Version: Weblate 4.18\n"
+"Project-Id-Version: Weblate 5.0.2\n"
 "Report-Msgid-Bugs-To: https://github.com/WeblateOrg/weblate/issues\n"
-"POT-Creation-Date: 2023-06-15 06:54+0000\n"
-"PO-Revision-Date: 2021-05-23 05:29+0000\n"
+"POT-Creation-Date: 2023-09-14 14:23+0000\n"
+"PO-Revision-Date: 2023-07-10 21:55+0000\n"
 "Last-Translator: Jorge Maldonado Ventura <jorgesumle@freakspot.net>\n"
 "Language-Team: Esperanto <https://hosted.weblate.org/projects/weblate/"
 "javascript/eo/>\n"
@@ -18,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.7-dev\n"
+"X-Generator: Weblate 5.0-dev\n"
 
 #: weblate/static/editor/base.js:94
 msgid "Please select target plural by clicking."
@@ -34,50 +31,51 @@ msgstr "Kmd+%s"
 msgid "Ctrl+%s"
 msgstr "Ctrl+%s"
 
-#: weblate/static/editor/full.js:261
+#: weblate/static/editor/full.js:265
 msgid "Translation memory entry removed."
-msgstr ""
+msgstr "Tradukmemora ero forigita."
 
-#: weblate/static/editor/full.js:294
+#: weblate/static/editor/full.js:298
 msgid "The request for machine translation has failed:"
 msgstr "La peto por maŝina traduko fiaskis:"
 
-#: weblate/static/editor/full.js:307
+#: weblate/static/editor/full.js:311
 #, javascript-format
 msgid "The request for machine translation using %s has failed:"
 msgstr "La peto por maŝina traduko per %s fiaskis:"
 
-#: weblate/static/editor/full.js:342
+#: weblate/static/editor/full.js:346
 #, javascript-format
 msgid "Cmd+M then %s"
 msgstr "Kmd+M poste %s"
 
-#: weblate/static/editor/full.js:344
+#: weblate/static/editor/full.js:348
 #, javascript-format
 msgid "Ctrl+M then %s"
 msgstr "Ctrl+M poste %s"
 
-#: weblate/static/editor/full.js:446
+#: weblate/static/editor/full.js:450
 #, javascript-format
 msgid "Press Cmd+I then %s to dismiss this."
-msgstr ""
+msgstr "Premu Cmd+I kaj poste %s por ignori ĉi tion."
 
-#: weblate/static/editor/full.js:451
+#: weblate/static/editor/full.js:455
 #, javascript-format
 msgid "Press Ctrl+I then %s to dismiss this."
-msgstr ""
-
-#: weblate/static/editor/full.js:591
-msgid "Clone to translation"
-msgstr ""
+msgstr "Premu Ctrl+I kaj poste %s por ignori ĉi tion."
 
 #: weblate/static/editor/full.js:597
-msgid "Accept"
-msgstr ""
+#, fuzzy
+msgid "Clone to translation"
+msgstr "Kloni al traduko"
 
-#: weblate/static/editor/full.js:608
+#: weblate/static/editor/full.js:603
+msgid "Accept"
+msgstr "Akcepti"
+
+#: weblate/static/editor/full.js:614
 msgid "Delete entry"
-msgstr ""
+msgstr "Forigi eron"
 
 #: weblate/static/editor/zen.js:105
 msgid "There are some unsaved changes, are you sure you want to leave?"
@@ -101,11 +99,11 @@ msgstr "Eraro dum ŝarĝado de paĝo:"
 
 #: weblate/static/loader-bootstrap.js:762
 msgid "Text copied to clipboard."
-msgstr ""
+msgstr "Teksto kopiita al tondejo."
 
 #: weblate/static/loader-bootstrap.js:766
 msgid "Please press Ctrl+C to copy."
-msgstr ""
+msgstr "Bonvolu premu Ctrl+C por kopii."
 
 #: weblate/static/loader-bootstrap.js:790
 msgid "Search…"
@@ -121,27 +119,27 @@ msgstr "Elektita:"
 
 #: weblate/static/loader-bootstrap.js:1057
 msgid "Weblate is now scanning the repository, please be patient."
-msgstr ""
+msgstr "Weblate nur skanas la deponejon, bonvolu pacienci."
 
-#: weblate/static/loader-bootstrap.js:1264
+#: weblate/static/loader-bootstrap.js:1274
 msgctxt "Alert to user when opening browser developer console"
 msgid "Stop!"
-msgstr ""
+msgstr "Haltu!"
 
-#: weblate/static/loader-bootstrap.js:1270
+#: weblate/static/loader-bootstrap.js:1280
 msgid ""
 "This is a browser feature intended for developers. If someone told you to "
 "copy-paste something here, they are likely trying to compromise your Weblate "
 "account."
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:1276
+#: weblate/static/loader-bootstrap.js:1286
 msgid "See https://en.wikipedia.org/wiki/Self-XSS for more information."
-msgstr ""
+msgstr "Legu https://en.wikipedia.org/wiki/Self-XSS por pli da informo."
 
 #: weblate/static/zammad.js:7
 msgid "Weblate feedback"
-msgstr ""
+msgstr "Rimarkoj pri Weblate"
 
 #: weblate/static/zammad.js:8
 msgid "Get help"
@@ -151,7 +149,7 @@ msgstr "Havigi helpon"
 #, javascript-format
 msgid ""
 "Thank you for your inquiry (#%s)! We'll contact you as soon as possible."
-msgstr ""
+msgstr "Dankon pro via enketo (#%s)! Ni kontaktos vin kiel eble plej baldaŭ."
 
 #: weblate/static/zammad.js:17
 msgid "Subject"
@@ -178,7 +176,7 @@ msgstr ""
 
 #: weblate/static/zammad.js:51
 msgid "Attachments"
-msgstr ""
+msgstr "Aldonaĵoj"
 
 #~ msgid "Sunday"
 #~ msgstr "dimanĉo"

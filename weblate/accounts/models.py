@@ -2,8 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import datetime
-from typing import Set
 
 from appconf import AppConf
 from django.conf import settings
@@ -31,7 +32,7 @@ from weblate.trans.defines import EMAIL_LENGTH
 from weblate.trans.models import ComponentList
 from weblate.utils import messages
 from weblate.utils.decorators import disable_for_loaddata
-from weblate.utils.fields import EmailField, JSONField
+from weblate.utils.fields import EmailField
 from weblate.utils.render import validate_editor
 from weblate.utils.request import get_ip_address, get_user_agent
 from weblate.utils.token import get_token
@@ -153,8 +154,10 @@ ACCOUNT_ACTIVITY = {
     "failed-auth": gettext_lazy("Could not sign in using {method} ({name})."),
     "locked": gettext_lazy("Account locked due to many failed sign in attempts."),
     "removed": gettext_lazy("Account and all private data removed."),
+    "removal-request": gettext_lazy("Account removal confirmation sent to {email}."),
     "tos": gettext_lazy("Agreement with Terms of Service {date}."),
     "invited": gettext_lazy("Invited to {site_title} by {username}."),
+    "accepted": gettext_lazy("Accepted invitation from {username}."),
     "trial": gettext_lazy("Started trial period."),
     "sent-email": gettext_lazy("Sent confirmation mail to {email}."),
     "autocreated": gettext_lazy(
@@ -170,7 +173,10 @@ ACCOUNT_ACTIVITY_METHOD = {
         "login": gettext_lazy("Signed in using password."),
         "login-new": gettext_lazy("Signed in using password from a new device."),
         "failed-auth": gettext_lazy("Could not sign in using password."),
-    }
+    },
+    "project": {
+        "invited": gettext_lazy("Invited to {project} by {username}."),
+    },
 }
 
 EXTRA_MESSAGES = {
@@ -263,7 +269,7 @@ class AuditLog(models.Model):
         choices=[(a, a) for a in sorted(ACCOUNT_ACTIVITY.keys())],
         db_index=True,
     )
-    params = JSONField()
+    params = models.JSONField(default=dict)
     address = models.GenericIPAddressField(null=True)
     user_agent = models.CharField(max_length=200, default="")
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -699,7 +705,7 @@ class Profile(models.Model):
         return result
 
     @cached_property
-    def primary_language_ids(self) -> Set[int]:
+    def primary_language_ids(self) -> set[int]:
         return {language.pk for language in self.all_languages}
 
     @cached_property
@@ -710,7 +716,7 @@ class Profile(models.Model):
         ).distinct()
 
     @cached_property
-    def secondary_language_ids(self) -> Set[int]:
+    def secondary_language_ids(self) -> set[int]:
         return set(self.secondary_languages.values_list("pk", flat=True))
 
     def get_translation_order(self, translation) -> int:

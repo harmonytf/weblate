@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import errno
 import os
 import sys
 import time
 from collections import defaultdict
-from datetime import timedelta
-from distutils.version import LooseVersion
+from datetime import datetime, timedelta
 from itertools import chain
+from typing import NamedTuple
 
 from celery.exceptions import TimeoutError
 from dateutil.parser import parse
@@ -19,13 +21,14 @@ from django.core.checks import Critical, Error, Info
 from django.core.mail import get_connection
 from django.db import DatabaseError
 from django.utils import timezone
+from packaging.version import Version
 
 from weblate.utils.celery import get_queue_stats
 from weblate.utils.data import data_dir
 from weblate.utils.db import using_postgresql
 from weblate.utils.docs import get_doc_url
 from weblate.utils.site import check_domain, get_site_domain
-from weblate.utils.version import VERSION_BASE, Release
+from weblate.utils.version import VERSION_BASE
 
 GOOD_CACHE = {"MemcachedCache", "PyLibMCCache", "DatabaseCache", "RedisCache"}
 DEFAULT_MAILS = {
@@ -294,7 +297,7 @@ def check_database(app_configs, **kwargs):
         errors.append(
             weblate_check(
                 "weblate.C037",
-                f"Failed to connect to the database: {error}",
+                f"Could not connect to the database: {error}",
             )
         )
 
@@ -480,7 +483,12 @@ def check_diskspace(app_configs=None, **kwargs):
 PYPI = "https://pypi.org/pypi/weblate/json"
 
 # Cache to store fetched PyPI version
-CACHE_KEY = "version-check"
+CACHE_KEY = "weblate-version-check"
+
+
+class Release(NamedTuple):
+    version: str
+    timestamp: datetime
 
 
 def download_version_info():
@@ -516,7 +524,7 @@ def check_version(app_configs=None, **kwargs):
         latest = get_latest_version()
     except (ValueError, OSError):
         return []
-    if LooseVersion(latest.version) > LooseVersion(VERSION_BASE):
+    if Version(latest.version) > Version(VERSION_BASE):
         # With release every two months, this gets triggered after three releases
         if latest.timestamp + timedelta(days=180) < timezone.now():
             return [
@@ -530,9 +538,7 @@ def check_version(app_configs=None, **kwargs):
         return [
             weblate_check(
                 "weblate.I031",
-                "New Weblate version is available, please upgrade to {}.".format(
-                    latest.version
-                ),
+                f"New Weblate version is available, please upgrade to {latest.version}.",
                 Info,
             )
         ]

@@ -107,6 +107,8 @@ Here is a list of flags currently accepted:
     Indicates forbidden translation in a glossary, see :ref:`glossary-forbidden`.
 ``strict-same``
     Make "Unchanged translation" avoid using built-in words blacklist, see :ref:`check-same`.
+``strict-format``
+    Make format checks enforce using format even for plural forms with a single value, see :ref:`check-formats`.
 ``check-glossary``
     Enable the :ref:`check-check-glossary` quality check.
 ``angularjs-format``
@@ -303,8 +305,6 @@ settings and in the translation file itself (for example in GNU gettext).
 Enforcing checks
 ----------------
 
-.. versionadded:: 3.11
-
 You can configure a list of checks which can not be ignored by setting
 :ref:`component-enforced_checks` in :ref:`component`. Each listed check can not
 be dismissed in the user interface and any string failing this check is marked as
@@ -325,8 +325,6 @@ be dismissed in the user interface and any string failing this check is marked a
 Managing fonts
 --------------
 
-.. versionadded:: 3.7
-
 .. hint::
 
    Fonts uploaded into Weblate are used purely for purposes of the
@@ -345,20 +343,20 @@ the check.
 The font-groups allow you to define different fonts for different languages,
 which is typically needed for non-latin languages:
 
-.. image:: /screenshots/font-group-edit.png
+.. image:: /screenshots/font-group-edit.webp
 
 The font-groups are identified by name, which can not contain whitespace or
 special characters, so that it can be easily used in the check definition:
 
-.. image:: /screenshots/font-group-list.png
+.. image:: /screenshots/font-group-list.webp
 
 Font-family and style is automatically recognized after uploading them:
 
-.. image:: /screenshots/font-edit.png
+.. image:: /screenshots/font-edit.webp
 
 You can have a number of fonts loaded into Weblate:
 
-.. image:: /screenshots/font-list.png
+.. image:: /screenshots/font-list.webp
 
 To use the fonts for checking the string length, pass it the appropriate
 flags (see :ref:`custom-checks`). You will probably need the following ones:

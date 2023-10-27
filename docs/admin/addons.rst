@@ -12,7 +12,7 @@ translation component.
    You can also configure add-ons using :ref:`API <addons-api>`,
    :setting:`DEFAULT_ADDONS`, or :wladmin:`install_addon`.
 
-.. image:: /screenshots/addons.png
+.. image:: /screenshots/addons.webp
 
 Built-in add-ons
 ++++++++++++++++
@@ -22,8 +22,6 @@ Built-in add-ons
 
 Automatic translation
 ---------------------
-
-.. versionadded:: 3.9
 
 :Add-on ID: ``weblate.autotranslate.autotranslate``
 :Configuration: +-----------------+----------------------------------+------------------------------------------------------------------------------------------------------+
@@ -223,7 +221,7 @@ You can use Django template markup in all filename fields, for example:
 Once you hit :guilabel:`Save`, a preview of matching components will be presented,
 from where you can check whether the configuration actually matches your needs:
 
-.. image:: /screenshots/addon-discovery.png
+.. image:: /screenshots/addon-discovery.webp
 
 Component discovery examples
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -281,8 +279,8 @@ Matching files:
    - :file:`locale/de/website/de.po`
 
 
-Splitted Android strings
-########################
+Split Android strings
+#####################
 
 Android resource strings, split into several files.
 
@@ -328,8 +326,6 @@ Matching files:
 
 Bulk edit
 ---------
-
-.. versionadded:: 3.11
 
 :Add-on ID: ``weblate.flags.bulk``
 :Configuration: +-------------------+-----------------------------+-------------------------+
@@ -391,8 +387,6 @@ Other automated operations for Weblate metadata can also be done.
 
 Flag unchanged translations as "Needs editing"
 ----------------------------------------------
-
-.. versionadded:: 3.1
 
 :Add-on ID: ``weblate.flags.same_edit``
 :Configuration: `This add-on has no configuration.`
@@ -794,8 +788,6 @@ Formats and sorts the Java properties file.
 Stale comment removal
 ---------------------
 
-.. versionadded:: 3.7
-
 :Add-on ID: ``weblate.removal.comments``
 :Configuration: +---------+--------------+--+
                 | ``age`` | Days to keep |  |
@@ -812,8 +804,6 @@ getting old does not mean they have lost their importance.
 
 Stale suggestion removal
 ------------------------
-
-.. versionadded:: 3.7
 
 :Add-on ID: ``weblate.removal.suggestions``
 :Configuration: +-----------+------------------+-------------------------------------------------------------------------+
@@ -833,8 +823,6 @@ don't receive enough positive votes in a given timeframe.
 
 Update RESX files
 -----------------
-
-.. versionadded:: 3.9
 
 :Add-on ID: ``weblate.resx.update``
 :Configuration: `This add-on has no configuration.`
@@ -871,8 +859,6 @@ Allows adjusting XML output behavior, for example closing tags.
 
 Customize YAML output
 ---------------------
-
-.. versionadded:: 3.10.2
 
 :Add-on ID: ``weblate.yaml.customize``
 :Configuration: +----------------+---------------------+------------------------------------+
@@ -986,37 +972,25 @@ Additionally, the following environment variables are available:
 
 .. envvar:: WL_COMPONENT_SLUG
 
-   .. versionadded:: 3.9
-
    Component slug used to construct URL.
 
 .. envvar:: WL_PROJECT_SLUG
-
-   .. versionadded:: 3.9
 
    Project slug used to construct URL.
 
 .. envvar:: WL_COMPONENT_NAME
 
-   .. versionadded:: 3.9
-
    Component name.
 
 .. envvar:: WL_PROJECT_NAME
-
-   .. versionadded:: 3.9
 
    Project name.
 
 .. envvar:: WL_COMPONENT_URL
 
-   .. versionadded:: 3.9
-
    Component URL.
 
 .. envvar:: WL_ENGAGE_URL
-
-   .. versionadded:: 3.9
 
    Project engage URL.
 

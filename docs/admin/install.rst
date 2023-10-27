@@ -66,7 +66,7 @@ Python dependencies
 +++++++++++++++++++
 
 Weblate is written in `Python <https://www.python.org/>`_ and supports Python
-3.6 or newer. You can install dependencies using pip or from your
+3.9 or newer. You can install dependencies using pip or from your
 distribution packages, full list is available in :file:`requirements.txt`.
 
 Most notable dependencies:
@@ -94,20 +94,10 @@ of them in :file:`requirements-optional.txt`.
 
 ``Mercurial`` (optional for :ref:`vcs-mercurial` repositories support)
     https://www.mercurial-scm.org/
-``phply`` (optional for :ref:`php`)
-    https://github.com/viraptor/phply
-``tesserocr`` (optional for OCR in :ref:`screenshots`)
-    https://github.com/sirfz/tesserocr
 ``python-akismet`` (optional for :ref:`spam-protection`)
     https://github.com/Nekmo/python-akismet
-``ruamel.yaml`` (optional for :ref:`yaml`)
-    https://pypi.org/project/ruamel.yaml/
 ``Zeep`` (optional for :ref:`mt-microsoft-terminology`)
     https://docs.python-zeep.org/
-``aeidon`` (optional for :ref:`subtitles`)
-    https://pypi.org/project/aeidon/
-``fluent.syntax`` (optional for :ref:`fluent`)
-    https://projectfluent.org/
 
 .. hint::
 
@@ -165,8 +155,6 @@ individual packages for documentation. You won't need those if using prebuilt
 
 Pango and Cairo
 +++++++++++++++
-
-.. versionchanged:: 3.7
 
 Weblate uses Pango and Cairo for rendering bitmap widgets (see
 :ref:`promotion`) and rendering checks (see :ref:`fonts`). To properly install
@@ -765,7 +753,7 @@ For a production setup you should carry out adjustments described in the followi
 The most critical settings will trigger a warning, which is indicated by an
 exclamation mark in the top bar if signed in as a superuser:
 
-.. image:: /screenshots/admin-wrench.png
+.. image:: /screenshots/admin-wrench.webp
 
 It is also recommended to inspect checks triggered by Django (though you might not
 need to fix all of them):
@@ -1046,7 +1034,7 @@ Running maintenance tasks
 +++++++++++++++++++++++++
 
 For optimal performance, it is good idea to run some maintenance tasks in the
-background. This is now automatically done by :ref:`celery` and covers following tasks:
+background. This is automatically done by :ref:`celery` and covers following tasks:
 
 * Configuration health check (hourly).
 * Committing pending changes (hourly), see :ref:`lazy-commit` and :wladmin:`commit_pending`.
@@ -1054,11 +1042,6 @@ background. This is now automatically done by :ref:`celery` and covers following
 * Update remote branches (nightly), see :setting:`AUTO_UPDATE`.
 * Translation memory backup to JSON (daily), see :wladmin:`dump_memory`.
 * Fulltext and database maintenance tasks (daily and weekly tasks), see :wladmin:`cleanuptrans`.
-
-.. versionchanged:: 3.2
-
-   Since version 3.2, the default way of executing these tasks is using Celery
-   and Weblate already comes with proper configuration, see :ref:`celery`.
 
 .. _production-encoding:
 
@@ -1223,14 +1206,14 @@ Serving static files
 Django needs to collect its static files in a single directory. To do so,
 execute :samp:`weblate collectstatic --noinput`. This will copy the static
 files into a directory specified by the :setting:`django:STATIC_ROOT` setting (this defaults to
-a ``static`` directory inside :setting:`DATA_DIR`).
+a ``static`` directory inside :setting:`CACHE_DIR`).
 
 It is recommended to serve static files directly from your web server, you should
 use that for the following paths:
 
 :file:`/static/`
     Serves static files for Weblate and the admin interface
-    (from defined by ``STATIC_ROOT``).
+    (from defined by :setting:`django:STATIC_ROOT`).
 :file:`/media/`
     Used for user media uploads (e.g. screenshots).
 :file:`/favicon.ico`
@@ -1354,8 +1337,6 @@ Additionally, you will have to adjust :file:`weblate/settings.py`:
 
 Background tasks using Celery
 -----------------------------
-
-.. versionadded:: 3.2
 
 Weblate uses Celery to execute regular and background tasks. You are supposed
 to run a Celery service that will execute these. For example, it is responsible

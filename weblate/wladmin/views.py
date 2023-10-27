@@ -15,7 +15,6 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.utils.html import escape, format_html
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView
@@ -25,7 +24,7 @@ from weblate.accounts.forms import AdminUserSearchForm
 from weblate.accounts.views import UserList
 from weblate.auth.decorators import management_access
 from weblate.auth.forms import AdminInviteUserForm, SitewideTeamForm
-from weblate.auth.models import Group, User
+from weblate.auth.models import Group, Invitation, User
 from weblate.configuration.models import Setting
 from weblate.configuration.views import CustomCSSView
 from weblate.trans.forms import AnnouncementForm
@@ -35,6 +34,7 @@ from weblate.utils import messages
 from weblate.utils.celery import get_queue_stats
 from weblate.utils.checks import measure_cache_latency, measure_database_latency
 from weblate.utils.errors import report_error
+from weblate.utils.stats import prefetch_stats
 from weblate.utils.tasks import database_backup, settings_backup
 from weblate.utils.version import GIT_LINK, GIT_REVISION
 from weblate.utils.views import show_form_errors
@@ -360,18 +360,7 @@ class AdminUserList(UserList):
         if "email" in request.POST:
             invite_form = AdminInviteUserForm(request.POST)
             if invite_form.is_valid():
-                user = invite_form.save(request)
-                messages.success(
-                    request,
-                    format_html(
-                        escape(gettext("Created user account {}.")),
-                        format_html(
-                            '<a href="{}">{}</a>',
-                            user.get_absolute_url(),
-                            user.username,
-                        ),
-                    ),
-                )
+                invite_form.save(request)
                 return redirect("manage-users")
         return super().get(request, **kwargs)
 
@@ -388,6 +377,7 @@ class AdminUserList(UserList):
         result["menu_page"] = "users"
         result["invite_form"] = invite_form
         result["search_form"] = AdminUserSearchForm()
+        result["invitations"] = Invitation.objects.all().select_related("user")
         return result
 
 
@@ -472,11 +462,12 @@ def billing(request):
 
     # We will list all billings anyway, so fetch  them at once
     billings = Billing.objects.prefetch().order_by("expiry", "removal", "id")
+    projects = []
 
     for current in billings:
         if current.removal:
             removal.append(current)
-        elif current.state == Billing.STATE_TRIAL:
+        if current.state == Billing.STATE_TRIAL:
             if (
                 current.plan
                 and current.plan.price == 0
@@ -490,6 +481,8 @@ def billing(request):
             paid.append(current)
         else:
             free.append(current)
+        projects.extend(current.ordered_projects)
+    prefetch_stats(projects)
 
     return render(
         request,
@@ -520,7 +513,7 @@ class TeamListView(FormMixin, ListView):
             .get_queryset()
             .prefetch_related("languages", "projects", "components")
             .filter(defining_project=None)
-            .annotate(Count("user"))
+            .annotate(Count("user"), Count("autogroup"))
             .order()
         )
 

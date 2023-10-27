@@ -159,10 +159,10 @@ class PythonFormatCheckTest(CheckTestCase):
         self.assertHTMLEqual(
             self.check.get_description(check),
             """
-            Following format strings are missing:
+            The following format strings are missing:
             <span class="hlcheck" data-value="%(count)d">%(count)d</span>
             <br />
-            Following format strings are extra:
+            The following format strings are extra:
             <span class="hlcheck" data-value="%(languages)d">%(languages)d</span>
             """,
         )
@@ -176,7 +176,7 @@ class PythonFormatCheckTest(CheckTestCase):
         check = Check(unit=unit)
         self.assertEqual(
             self.check.get_description(check),
-            "Following format strings are wrongly ordered: %d, %s",
+            "The following format strings are in the wrong order: %d, %s",
         )
 
     def test_duplicated_format(self):
@@ -998,7 +998,7 @@ class RubyFormatCheckTest(CheckTestCase):
 class PluralTest(FixtureTestCase):
     check = PythonFormatCheck()
 
-    def do_check(self, sources, targets, translation):
+    def do_check(self, sources, targets, translation, flags: str = ""):
         return self.check.check_target_unit(
             sources,
             targets,
@@ -1006,6 +1006,7 @@ class PluralTest(FixtureTestCase):
                 translation=translation,
                 source=join_plural(sources),
                 target=join_plural(targets),
+                extra_flags=flags,
             ),
         )
 
@@ -1032,6 +1033,25 @@ class PluralTest(FixtureTestCase):
         self.assertTrue(
             self.do_check(
                 ["hello %s"] * 2, ["hell"] * 4 + ["hello %s"] * 2, translation
+            )
+        )
+
+    def test_arabic_strict(self):
+        arabic = Language.objects.get(code="ar")
+        translation = Translation(
+            language=arabic, plural=arabic.plural, component=Component(file_format="po")
+        )
+        self.assertTrue(
+            self.do_check(
+                ["hello %s"] * 2,
+                ["hell"] * 3 + ["hello %s"] * 3,
+                translation,
+                "strict-format",
+            )
+        )
+        self.assertFalse(
+            self.do_check(
+                ["hello %s"] * 2, ["hell %s"] * 6, translation, "strict-format"
             )
         )
 
@@ -1089,7 +1109,11 @@ class PluralTest(FixtureTestCase):
 
     def test_non_format_singular_named(self):
         language = Language.objects.get(code="cs")
-        translation = Translation(language=language, plural=language.plural)
+        translation = Translation(
+            language=language,
+            plural=language.plural,
+            component=Component(file_format="po"),
+        )
         self.assertFalse(
             self.do_check(
                 ["One apple", "%(count)s apples"],
@@ -1114,7 +1138,11 @@ class PluralTest(FixtureTestCase):
 
     def test_non_format_singular_named_be(self):
         language = Language.objects.get(code="be")
-        translation = Translation(language=language, plural=language.plural)
+        translation = Translation(
+            language=language,
+            plural=language.plural,
+            component=Component(file_format="po"),
+        )
         self.assertTrue(
             self.do_check(
                 ["One apple", "%(count)s apples"],
@@ -1268,10 +1296,10 @@ class ESTemplateLiteralsCheckTest(CheckTestCase):
         self.assertHTMLEqual(
             self.check.get_description(check),
             """
-            Following format strings are missing:
+            The following format strings are missing:
             <span class="hlcheck" data-value="${foo}">${foo}</span>
             <br />
-            Following format strings are extra:
+            The following format strings are extra:
             <span class="hlcheck" data-value="${bar}">${bar}</span>
             """,
         )
