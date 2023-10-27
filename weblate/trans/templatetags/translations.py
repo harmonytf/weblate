@@ -433,12 +433,14 @@ def format_source_string(
 def format_language_string(
     value: str,
     translation,
+    diff=None,
 ):
     """Formats simple string as in the language."""
     return format_translation(
         plurals=split_plural(value),
         language=translation.language,
         plural=translation.plural,
+        diff=diff,
     )
 
 
@@ -548,10 +550,10 @@ def documentation_icon(context, page, anchor="", right=False):
 
 @register.inclusion_tag("documentation-icon.html", takes_context=True)
 def form_field_doc_link(context, form, field):
-    if hasattr(form, "get_field_doc"):
+    if hasattr(form, "get_field_doc") and (field_doc := form.get_field_doc(field)):
         return {
             "right": False,
-            "doc_url": get_doc_url(*form.get_field_doc(field), user=context["user"]),
+            "doc_url": get_doc_url(*field_doc, user=context["user"]),
         }
     return {}
 
@@ -806,7 +808,7 @@ def try_linkify_filename(
 
 
 @register.simple_tag
-def get_location_links(profile, unit):
+def get_location_links(user: User | None, unit):
     """Generate links to source files where translation was used."""
     # Fallback to source unit if it has more information
     if not unit.location and unit.source_unit.location:
@@ -819,6 +821,8 @@ def get_location_links(profile, unit):
     # Is it just an ID?
     if unit.location.isdigit():
         return gettext("string ID %s") % unit.location
+
+    profile = user.profile if user else None
 
     # Go through all locations separated by comma
     return format_html_join(
@@ -1118,9 +1122,10 @@ def percent_format(number):
         percent = 99
     else:
         percent = int(number)
-    return pgettext("Translated percents", "%(percent)s%%") % {
-        "percent": intcomma(percent)
-    }
+    return mark_safe(  # noqa: S308
+        pgettext("Translated percents", "%(percent)s%%")
+        % {"percent": intcomma(percent)}
+    )
 
 
 @register.filter
@@ -1191,7 +1196,7 @@ def urlize_ugc(value, autoescape=True):
     )
 
 
-def get_breadcrumbs(path_object):
+def get_breadcrumbs(path_object, flags: bool = True):
     if isinstance(path_object, Unit):
         yield from get_breadcrumbs(path_object.translation)
         yield path_object.get_absolute_url(), path_object.pk
@@ -1203,13 +1208,16 @@ def get_breadcrumbs(path_object):
             yield from get_breadcrumbs(path_object.category)
         else:
             yield from get_breadcrumbs(path_object.project)
-        yield path_object.get_absolute_url(), format_html(
-            "{}{}",
-            path_object.name,
-            render_to_string(
-                "snippets/component-glossary-badge.html", {"object": path_object}
-            ),
-        )
+        name = path_object.name
+        if flags:
+            name = format_html(
+                "{}{}",
+                name,
+                render_to_string(
+                    "snippets/component-glossary-badge.html", {"object": path_object}
+                ),
+            )
+        yield path_object.get_absolute_url(), name
     elif isinstance(path_object, Category):
         if path_object.category:
             yield from get_breadcrumbs(path_object.category)
@@ -1236,12 +1244,29 @@ def get_breadcrumbs(path_object):
 
 
 @register.simple_tag
-def path_object_breadcrumbs(path_object):
+def path_object_breadcrumbs(path_object, flags: bool = True):
     return format_html_join(
-        "\n", '<li><a href="{}">{}</a></li>', get_breadcrumbs(path_object)
+        "\n", '<li><a href="{}">{}</a></li>', get_breadcrumbs(path_object, flags)
     )
 
 
 @register.simple_tag
 def get_projectlanguage(project, language):
     return ProjectLanguage(project=project, language=language)
+
+
+@register.simple_tag
+def get_workflow_flags(translation, component):
+    if translation:
+        return {
+            "suggestion_voting": translation.suggestion_voting,
+            "suggestion_autoaccept": translation.suggestion_autoaccept,
+            "enable_suggestions": translation.enable_suggestions,
+            "translation_review": translation.enable_review,
+        }
+    return {
+        "suggestion_voting": component.suggestion_voting,
+        "suggestion_autoaccept": component.suggestion_autoaccept,
+        "enable_suggestions": component.enable_suggestions,
+        "translation_review": component.project.translation_review,
+    }

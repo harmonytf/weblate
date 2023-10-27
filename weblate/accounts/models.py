@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime
+from urllib.parse import urlparse
 
 from appconf import AppConf
 from django.conf import settings
@@ -165,6 +166,8 @@ ACCOUNT_ACTIVITY = {
         "translations uploaded by other user."
     ),
     "blocked": gettext_lazy("Access to project {project} was blocked"),
+    "enabled": gettext_lazy("User was enabled by administrator"),
+    "disabled": gettext_lazy("User was disabled by administrator"),
 }
 # Override activity messages based on method
 ACCOUNT_ACTIVITY_METHOD = {
@@ -185,6 +188,12 @@ EXTRA_MESSAGES = {
     ),
     "blocked": gettext_lazy(
         "Please contact project maintainers if you feel this is inappropriate."
+    ),
+    "register": gettext_lazy(
+        "If it was you, please use a password reset to regain access to your account."
+    ),
+    "connect": gettext_lazy(
+        "If it was you, please use a password reset to regain access to your account."
     ),
 }
 
@@ -323,6 +332,7 @@ class AuditLog(models.Model):
             and self.user.is_active
             and self.user.email
             and self.activity in NOTIFY_ACTIVITY
+            and not self.params.get("skip_notify")
         )
 
     def check_rate_limit(self, request):
@@ -560,7 +570,7 @@ class Profile(models.Model):
         db_index=False,
     )
     twitter = models.SlugField(
-        verbose_name=gettext_lazy("Twitter username"),
+        verbose_name=gettext_lazy("X username"),
         blank=True,
         db_index=False,
     )
@@ -613,6 +623,14 @@ class Profile(models.Model):
 
     def get_user_name(self):
         return get_user_display(self.user, False)
+
+    def get_fediverse_share(self):
+        if not self.fediverse:
+            return None
+        parsed = urlparse(self.fediverse)
+        if not parsed.hostname:
+            return None
+        return parsed._replace(path="/share", query="text=", fragment="").geturl()
 
     def increase_count(self, item: str, increase: int = 1):
         """Updates user actions counter."""
@@ -719,16 +737,24 @@ class Profile(models.Model):
     def secondary_language_ids(self) -> set[int]:
         return set(self.secondary_languages.values_list("pk", flat=True))
 
-    def get_translation_order(self, translation) -> int:
+    def get_translation_order(self, translation) -> str:
         """Returns key suitable for ordering languages based on user preferences."""
+        from weblate.trans.models import Unit
+
+        if isinstance(translation, Unit):
+            translation = translation.translation
         language = translation.language
+
         if language.pk in self.primary_language_ids:
-            return 0
-        if language.pk in self.secondary_language_ids:
-            return 1
-        if translation.is_source:
-            return 2
-        return 3
+            priority = 0
+        elif language.pk in self.secondary_language_ids:
+            priority = 1
+        elif translation.is_source:
+            priority = 2
+        else:
+            priority = 3
+
+        return f"{priority}-{language}"
 
     def fixup_profile(self, request):
         fields = set()

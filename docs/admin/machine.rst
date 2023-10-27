@@ -150,7 +150,7 @@ language (for example, there is ``de@formal`` and ``de@informal``).
 
 .. seealso::
 
-    `DeepL website <https://www.deepl.com/>`_,
+    `DeepL translator <https://www.deepl.com/translator>`_,
     `DeepL pricing <https://www.deepl.com/pro>`_,
     `DeepL API documentation <https://www.deepl.com/docs-api.html>`_
 
@@ -314,7 +314,7 @@ With new Azure keys, you also need to set ``region`` to locale of your service.
 
 .. seealso::
 
-   `Cognitive Services - Text Translation API <https://azure.microsoft.com/en-us/products/cognitive-services/translator/>`_,
+   `Cognitive Services - Text Translation API <https://azure.microsoft.com/en-us/products/ai-services/ai-translator>`_,
    `Microsoft Azure Portal <https://portal.azure.com/>`_,
    `Base URLs <https://learn.microsoft.com/en-us/azure/ai-services/translator/reference/v3-0-reference#base-urls>`_,
    `"Authenticating with a Multi-service resource" <https://learn.microsoft.com/en-us/azure/ai-services/translator/reference/v3-0-reference#authenticating-with-a-multi-service-resource>`_
@@ -524,6 +524,27 @@ This service uses a Translation API, and you need to obtain an API key from Yand
 
     `Yandex Translate API <https://yandex.com/dev/translate/>`_,
     `Powered by Yandex.Translate <https://translate.yandex.com/>`_
+
+.. _mt-yandex-v2:
+
+Yandex v2
+---------
+
+.. versionadded:: 5.1
+
+:Service ID: ``yandex-v2``
+:Configuration: +---------+---------+--+
+                | ``key`` | API key |  |
+                +---------+---------+--+
+
+Machine translation service provided by Yandex.
+
+This service uses a Translation API, and you need to obtain an API key from Yandex Cloud.
+
+.. seealso::
+
+    `Yandex Translate API v2 <https://cloud.yandex.com/en/docs/translate/api-ref/authentication>`_,
+    `Powered by Yandex.Cloud <https://cloud.yandex.com/en/services/translate>`_
 
 .. _mt-youdao-zhiyun:
 

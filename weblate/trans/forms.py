@@ -56,6 +56,7 @@ from weblate.trans.models import (
     Label,
     Project,
     Unit,
+    WorkflowSetting,
 )
 from weblate.trans.specialchars import RTL_CHARS_DATA, get_special_chars
 from weblate.trans.util import check_upload_method_permissions, is_repo_link
@@ -1047,7 +1048,6 @@ class EngageForm(forms.Form):
         Component.objects.none(),
         required=False,
         empty_label=gettext_lazy("All components"),
-        to_field_name="slug",
     )
 
     def __init__(self, user, project, *args, **kwargs):
@@ -1308,11 +1308,8 @@ class CleanRepoMixin:
         repo = self.cleaned_data.get("repo")
         if not repo or not is_repo_link(repo) or "/" not in repo[10:]:
             return repo
-        project, component = repo[10:].split("/", 1)
         try:
-            obj = Component.objects.get(
-                slug__iexact=component, project__slug__iexact=project
-            )
+            obj = Component.objects.get_linked(repo)
         except Component.DoesNotExist:
             return repo
         if not self.request.user.has_perm("component.edit", obj):
@@ -1977,6 +1974,7 @@ class AddCategoryForm(SettingsBaseForm):
             self.instance.project = self.parent.project
         else:
             self.instance.project = self.parent
+        super().clean()
 
 
 class CategoryMoveForm(SettingsBaseForm):
@@ -2124,6 +2122,18 @@ class ProjectSettingsForm(SettingsBaseForm, ProjectDocsMixin, ProjectAntispamMix
                     "language_aliases",
                     "translation_review",
                     "source_review",
+                    ContextDiv(
+                        template="snippets/project-workflow-settings.html",
+                        context={
+                            "object": self.instance,
+                            "project_languages": self.instance.project_languages.preload(),
+                            "custom_workflows": set(
+                                self.instance.workflowsetting_set.values_list(
+                                    "language_id", flat=True
+                                )
+                            ),
+                        },
+                    ),
                     css_id="workflow",
                 ),
                 Tab(
@@ -2773,3 +2783,63 @@ class ProjectUserGroupForm(UserManageForm):
 class ProjectFilterForm(forms.Form):
     owned = UserField(required=False)
     watched = UserField(required=False)
+
+
+class WorkflowSettingForm(forms.ModelForm):
+    enable = forms.BooleanField(
+        label=gettext_lazy("Customize translation workflow for this language"),
+        help_text=gettext_lazy(
+            "The translation workflow is configured at project and component. "
+            "By enabling customization here, you override these settings for this language."
+        ),
+        required=False,
+        initial=False,
+    )
+
+    class Meta:
+        model = WorkflowSetting
+        fields = [
+            "translation_review",
+            "enable_suggestions",
+            "suggestion_voting",
+            "suggestion_autoaccept",
+        ]
+
+    def __init__(
+        self,
+        data=None,
+        files=None,
+        *,
+        instance=None,
+        prefix=None,
+        initial=None,
+        **kwargs,
+    ):
+        if instance is not None:
+            initial = {"enable": True}
+        self.instance = instance
+        super().__init__(
+            data, files, instance=instance, initial=initial, prefix="workflow", **kwargs
+        )
+        self.helper = FormHelper(self)
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Field("enable"),
+            Field("translation_review"),
+            Field("enable_suggestions"),
+            Field("suggestion_voting"),
+            Field("suggestion_autoaccept"),
+        )
+
+    def save(self, commit=True):
+        if self.cleaned_data["enable"]:
+            return super().save(commit=commit)
+        if self.instance and self.instance.pk:
+            self.instance.delete()
+            self.instance = None
+        return self.instance
+
+    def get_field_doc(self, field):
+        if field.name == "enable":
+            return ("workflows", "workflow-customization")
+        return None

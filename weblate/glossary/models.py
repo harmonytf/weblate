@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import re
 from collections import defaultdict
 from itertools import chain
@@ -39,6 +41,8 @@ def get_glossary_automaton(project):
                 glossary.glossary_sources for glossary in project.glossaries
             )
         )
+        # Remove blank string as that is not really reasonable to match
+        terms.discard("")
         # Build automaton for efficient Aho-Corasick search
         return ahocorasick_rs.AhoCorasick(
             terms,
@@ -47,7 +51,7 @@ def get_glossary_automaton(project):
         )
 
 
-def get_glossary_terms(unit):
+def get_glossary_terms(unit: Unit) -> list[Unit]:
     """Return list of term pairs for an unit."""
     if unit.glossary_terms is not None:
         return unit.glossary_terms
@@ -58,17 +62,7 @@ def get_glossary_terms(unit):
     source_language = component.source_language
 
     if language == source_language:
-        return Unit.objects.none()
-
-    units = (
-        Unit.objects.prefetch()
-        .filter(
-            translation__component__in=project.glossaries,
-            translation__component__source_language=source_language,
-            translation__language=language,
-        )
-        .select_related("source_unit", "variant")
-    )
+        return []
 
     # Build complete source for matching
     parts = []
@@ -94,10 +88,19 @@ def get_glossary_terms(unit):
                 term = source[start:end].lower()
                 positions[term].append((start, end))
 
+        if not positions:
+            unit.glossary_terms = []
+            return []
+
         units = list(
-            units.filter(
-                Q(source__lower__md5__in=[MD5(Value(term)) for term in positions])
+            Unit.objects.prefetch()
+            .filter(
+                Q(source__lower__md5__in=[MD5(Value(term)) for term in positions]),
+                translation__component__in=project.glossaries,
+                translation__component__source_language=source_language,
+                translation__language=language,
             )
+            .select_related("source_unit", "variant")
         )
 
         # Add variants manually. This could be done by adding filtering on

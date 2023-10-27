@@ -1,6 +1,6 @@
 -r requirements.txt
 # Amazon
-boto3>=1.28.0,<1.29.0
+boto3>=1.28.62,<1.29.0
 # LDAP
 django-auth-ldap>=4.1.0,<5.0.0
 # zxcvbn
@@ -19,7 +19,5 @@ psycopg>=3.1.8,<4
 python-akismet>=0.4.2,<0.5
 # SAML
 python3-saml>=1.2.1
-# OpenIDConnect
-social-auth-core[openidconnect]>=4.3.0,<5.0.0
 # MSTerminology
 zeep>=4.1.0,<4.3.0

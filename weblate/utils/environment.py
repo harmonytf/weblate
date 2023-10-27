@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 
 
@@ -90,14 +91,19 @@ def get_env_credentials(
     name: str,
 ) -> dict[str, dict[str, str]]:
     """Parses VCS integration credentials."""
+    if credentials := get_env_str(f"WEBLATE_{name}_CREDENTIALS"):
+        return ast.literal_eval(credentials)
     username = os.environ.get(f"WEBLATE_{name}_USERNAME")
     token = os.environ.get(f"WEBLATE_{name}_TOKEN")
     host = os.environ.get(f"WEBLATE_{name}_HOST")
 
-    if not host and (username or token):
-        raise ValueError(
-            f"Incomplete {name}_CREDENTIALS configuration: missing WEBLATE_{name}_HOST"
-        )
+    if not host:
+        if username or token:
+            raise ValueError(
+                f"Incomplete {name}_CREDENTIALS configuration: missing WEBLATE_{name}_HOST"
+            )
+        return {}
+
     return {host: {"username": username, "token": token}}
 
 

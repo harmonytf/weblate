@@ -28,7 +28,7 @@ in Weblate; such as additional context, comments or flags. Several file formats
 are available via the :guilabel:`Files` ↓ :guilabel:`Customize download` menu:
 
 * gettext PO (``po``)
-* XLIFF with gettext extensions (``xliff``)
+* XLIFF 1.1 with gettext extensions (``xliff``)
 * XLIFF 1.1 (``xliff11``)
 * TermBase eXchange (``tbx``)
 * Translation Memory eXchange (``tmx``)
@@ -50,6 +50,20 @@ are available via the :guilabel:`Files` ↓ :guilabel:`Customize download` menu:
 
    :http:get:`/api/translations/(string:project)/(string:component)/(string:language)/file/`,
    :setting:`WEBLATE_EXPORTERS`
+
+.. _download-multi:
+
+Downloading components, categories or projects
+----------------------------------------------
+
+Translation files for a component, category or project can be downloaded at
+once via the :guilabel:`Files` menu. The download is always served as a ZIP
+file, and you can choose original or converted formats similarly as in
+:ref:`download`.
+
+.. seealso::
+
+   :http:get:`/api/components/(string:project)/(string:component)/file/`
 
 .. _upload:
 
@@ -124,7 +138,14 @@ Add new strings (``add``)
 Conflicts handling
 ++++++++++++++++++
 
-Defines how to deal with uploaded strings which are already translated.
+Defines how to deal with uploaded strings which are already translated:
+
+Change only untranslated strings (``ignore``)
+   Ignore uploaded translations which are already translated.
+Change translated strings (``replace-translated``)
+   Replace existing translations with uploaded ones, but keep approved ones.
+Change translated and approved strings (``replace-approved``)
+   Replace existing translations with uploaded ones, including approved ones.
 
 .. _upload-fuzzy:
 

@@ -283,6 +283,11 @@ of upgrading.
       docker compose rm -v database
       docker volume remove weblate-docker_postgres-data
 
+   .. hint::
+
+      The volume name contains name of the Docker Compose project, which is by
+      default the directory name what is ``weblate-docker`` in this documentation.
+
 5. Adjust :file:`docker-compose.yml` to use new PostgreSQL version.
 
 6. Start the database container:
@@ -751,6 +756,7 @@ Generic settings
 .. envvar:: WEBLATE_GITHUB_USERNAME
 .. envvar:: WEBLATE_GITHUB_TOKEN
 .. envvar:: WEBLATE_GITHUB_HOST
+.. envvar:: WEBLATE_GITHUB_CREDENTIALS
 
     Configures GitHub pull-requests integration by changing
     :setting:`GITHUB_CREDENTIALS`.
@@ -762,6 +768,7 @@ Generic settings
 .. envvar:: WEBLATE_GITLAB_USERNAME
 .. envvar:: WEBLATE_GITLAB_TOKEN
 .. envvar:: WEBLATE_GITLAB_HOST
+.. envvar:: WEBLATE_GITLAB_CREDENTIALS
 
     Configures GitLab merge-requests integration  by changing
     :setting:`GITLAB_CREDENTIALS`.
@@ -773,6 +780,8 @@ Generic settings
        WEBLATE_GITLAB_USERNAME=weblate
        WEBLATE_GITLAB_HOST=gitlab.com
        WEBLATE_GITLAB_TOKEN=token
+       # or as a Python dictionary
+       WEBLATE_GITLAB_CREDENTIALS='{ "gitlab.com": { "username": "weblate", "token": "token" } }'
 
     .. seealso::
 
@@ -781,6 +790,7 @@ Generic settings
 .. envvar:: WEBLATE_GITEA_USERNAME
 .. envvar:: WEBLATE_GITEA_TOKEN
 .. envvar:: WEBLATE_GITEA_HOST
+.. envvar:: WEBLATE_GITEA_CREDENTIALS
 
     Configures Gitea pull-requests integration by changing
     :setting:`GITEA_CREDENTIALS`.
@@ -793,6 +803,7 @@ Generic settings
 .. envvar:: WEBLATE_PAGURE_USERNAME
 .. envvar:: WEBLATE_PAGURE_TOKEN
 .. envvar:: WEBLATE_PAGURE_HOST
+.. envvar:: WEBLATE_PAGURE_CREDENTIALS
 
     Configures Pagure merge-requests integration  by changing
     :setting:`PAGURE_CREDENTIALS`.
@@ -804,6 +815,7 @@ Generic settings
 .. envvar:: WEBLATE_BITBUCKETSERVER_USERNAME
 .. envvar:: WEBLATE_BITBUCKETSERVER_TOKEN
 .. envvar:: WEBLATE_BITBUCKETSERVER_HOST
+.. envvar:: WEBLATE_BITBUCKETSERVER_CREDENTIALS
 
     Configures Bitbucket Server pull-requests integration by changing
     :setting:`BITBUCKETSERVER_CREDENTIALS`.
@@ -1356,8 +1368,11 @@ both Weblate and PostgreSQL containers.
    .. versionadded:: 4.8.1
 
    The lifetime of a database connection, as an integer of seconds. Use 0 to
-   close database connections at the end of each request (this is the default
-   behavior).
+   close database connections at the end of each request.
+
+   .. versionchanged:: 5.1
+
+      The default behavior is to have unlimited persistent database connections.
 
    Enabling connection persistence will typically, cause more open connection
    to the database. Please adjust your database configuration prior enabling.
@@ -1392,6 +1407,20 @@ both Weblate and PostgreSQL containers.
       :setting:`DISABLE_SERVER_SIDE_CURSORS <django:DATABASE-DISABLE_SERVER_SIDE_CURSORS>`,
       :ref:`django:transaction-pooling-server-side-cursors`
 
+.. envvar:: WEBLATE_DATABASES
+
+   .. versionadded:: 5.1
+
+   Set to false to disables environment based configuration of the database
+   connection. Use :ref:`docker-settings-override` to configure the database
+   connection manually.
+
+MySQL or MariaDB server
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Neither MySQL nor MariaDB can not be configured via environment variables. See
+:ref:`mysql` for info on using those with Weblate. Use :envvar:`WEBLATE_DATABASES`
+to configure the database connection manually.
 
 Database backup settings
 ~~~~~~~~~~~~~~~~~~~~~~~~

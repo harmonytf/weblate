@@ -83,11 +83,6 @@ class MachineTranslation:
     def delete_cache(self):
         cache.delete_many([self.rate_limit_cache, self.languages_cache])
 
-    @staticmethod
-    def migrate_settings():
-        # TODO: Drop in Weblate 5.1
-        return {}
-
     def validate_settings(self):
         try:
             self.download_languages()
@@ -431,12 +426,12 @@ class MachineTranslation:
             if isinstance(exc, MachineTranslationError):
                 raise
             raise MachineTranslationError(self.get_error_message(exc)) from exc
+        for item in result:
+            item["original_source"] = original_source
         if cache_key:
             cache.set(cache_key, result, 30 * 86400)
         if replacements or self.force_uncleanup:
             self.uncleanup_results(replacements, result)
-        for item in result:
-            item["original_source"] = original_source
         return result
 
     def get_error_message(self, exc):
@@ -481,12 +476,21 @@ class MachineTranslation:
             plural_count = len(translation_lists)
             translation = result.setdefault("translation", [""] * plural_count)
             quality = result.setdefault("quality", [0] * plural_count)
+            origin = result.setdefault("origin", [None] * plural_count)
             for plural, possible_translations in enumerate(translation_lists):
                 for item in possible_translations:
                     if quality[plural] > item["quality"]:
                         continue
                     quality[plural] = item["quality"]
                     translation[plural] = item["text"]
+                    origin[plural] = self
+
+    @cached_property
+    def user(self):
+        """Weblate user used to track changes by this engine."""
+        from weblate.auth.models import User
+
+        return User.objects.get_or_create_bot("mt", self.get_identifier(), self.name)
 
 
 class InternalMachineTranslation(MachineTranslation):

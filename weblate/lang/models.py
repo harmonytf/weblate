@@ -33,14 +33,13 @@ from weblate.logger import LOGGER
 from weblate.trans.defines import LANGUAGE_CODE_LENGTH, LANGUAGE_NAME_LENGTH
 from weblate.trans.mixins import CacheKeyMixin
 from weblate.trans.util import sort_objects, sort_unicode
-from weblate.utils.templatetags.icons import icon
 from weblate.utils.validators import validate_plural_formula
 
 PLURAL_RE = re.compile(
     r"\s*nplurals\s*=\s*([0-9]+)\s*;\s*plural\s*=\s*([()n0-9!=|&<>+*/%\s?:-]+)"
 )
 PLURAL_TITLE = """
-{name} <span title="{examples}">{icon}</span>
+{name} <span class="text-muted" title="{title}">({examples})</span>
 """
 COPY_RE = re.compile(r"\([0-9]+\)")
 KNOWN_SUFFIXES = {"hant", "hans", "latn", "cyrl", "shaw"}
@@ -428,12 +427,7 @@ class LanguageManager(models.Manager.from_queryset(LanguageQuerySet)):
     @cached_property
     def default_language(self):
         """Return English language object."""
-        # Intentionally skip population field here as it
-        # might not yet be created during migrations.
-        # TODO: Drop this in Weblate 5.1
-        return self.only("name", "code", "direction").get(
-            code=settings.DEFAULT_LANGUAGE, skip_cache=True
-        )
+        return self.get(code=settings.DEFAULT_LANGUAGE, skip_cache=True)
 
     def setup(self, update, logger=lambda x: x):
         """
@@ -835,6 +829,9 @@ class Plural(models.Model):
             if len(result[ret]) >= 10:
                 continue
             result[ret].append(str(i))
+        for example in result.values():
+            if len(example) >= 10:
+                example.append("…")
         return result
 
     @staticmethod
@@ -878,11 +875,8 @@ class Plural(models.Model):
         return format_html(
             PLURAL_TITLE,
             name=self.get_plural_name(idx),
-            icon=icon("info.svg"),
-            # Translators: Label for plurals with example counts
-            examples=gettext("For example: {0}").format(
-                ", ".join(self.examples.get(idx, []))
-            ),
+            examples=", ".join(self.examples.get(idx, [])),
+            title=gettext("Example counts for this plural form."),
         )
 
     def get_plural_name(self, idx):
@@ -976,6 +970,22 @@ class PluralMapper:
                     s = format_check.interpolate_number(s, number_to_interpolate)
                 strings_to_translate.append(s)
         return strings_to_translate
+
+    def zip(self, sources, targets, unit):
+        if len(sources) != self.source_plural.number:
+            raise ValueError(
+                "length of `sources` does't match the number of source plurals"
+            )
+        if len(targets) != self.target_plural.number:
+            raise ValueError(
+                "length of `targets` does't match the number of target plurals"
+            )
+        if self.same_plurals:
+            return zip(sources, targets)
+        return [
+            (sources[-1 if i is None else i], targets[j])
+            for (i, _), j in zip(self._target_map, range(len(targets)))
+        ]
 
 
 class WeblateLanguagesConf(AppConf):

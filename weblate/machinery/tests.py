@@ -54,6 +54,7 @@ from weblate.machinery.saptranslationhub import SAPTranslationHub
 from weblate.machinery.tmserver import AMAGAMA_LIVE, AmagamaTranslation
 from weblate.machinery.weblatetm import WeblateTranslation
 from weblate.machinery.yandex import YandexTranslation
+from weblate.machinery.yandexv2 import YandexV2Translation
 from weblate.machinery.youdao import YoudaoTranslation
 from weblate.trans.models import Project, Unit
 from weblate.trans.tests.test_views import FixtureTestCase
@@ -856,6 +857,67 @@ class YandexTranslationTest(BaseMachineTranslationTest):
             self.assert_translate(self.SUPPORTED, self.SOURCE_BLANK, 0)
 
 
+class YandexV2TranslationTest(BaseMachineTranslationTest):
+    MACHINE_CLS = YandexV2Translation
+    EXPECTED_LEN = 1
+    CONFIGURATION = {
+        "key": "KEY",
+    }
+
+    def mock_empty(self):
+        raise SkipTest("Not tested")
+
+    def mock_error(self):
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/languages",
+            json={"code": 401},
+        )
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/translate",
+            json={"code": 400, "message": "Invalid request"},
+        )
+
+    def mock_response(self):
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/languages",
+            json={
+                "languages": [
+                    {"code": "cs", "name": "Czech"},
+                    {"code": "en", "name": "English"},
+                ]
+            },
+        )
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/translate",
+            json={"translations": [{"text": "svet", "detectedLanguageCode": "en"}]},
+        )
+
+    @responses.activate
+    def test_error_message(self):
+        message = "Invalid test request"
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/languages",
+            json={
+                "languages": [
+                    {"code": "cs", "name": "Czech"},
+                    {"code": "en", "name": "English"},
+                ]
+            },
+        )
+        responses.add(
+            responses.POST,
+            "https://translate.api.cloud.yandex.net/translate/v2/translate",
+            json={"code": 400, "message": message},
+        )
+        with self.assertRaisesRegex(MachineTranslationError, message):
+            self.assert_translate(self.SUPPORTED, self.SOURCE_BLANK, 0)
+
+
 class YoudaoTranslationTest(BaseMachineTranslationTest):
     MACHINE_CLS = YoudaoTranslation
     EXPECTED_LEN = 1
@@ -1419,7 +1481,8 @@ class ViewsTest(FixtureTestCase):
                     "original_source": "Hello, world!\n",
                     "source": "Hello, world!\n",
                     "diff": "<ins>Nazdar světe!</ins>",
-                    "source_diff": "Hello, world!\n",
+                    "source_diff": 'Hello, world!<span class="hlspace"><span class="space-nl"></span></span><br />',
+                    "html": "Nazdar světe!",
                 },
                 {
                     "quality": 100,
@@ -1429,7 +1492,8 @@ class ViewsTest(FixtureTestCase):
                     "source": "Hello, world!\n",
                     "original_source": "Hello, world!\n",
                     "diff": "<ins>Ahoj světe!</ins>",
-                    "source_diff": "Hello, world!\n",
+                    "source_diff": 'Hello, world!<span class="hlspace"><span class="space-nl"></span></span><br />',
+                    "html": "Ahoj světe!",
                 },
             ],
         )

@@ -55,7 +55,7 @@ from weblate.trans.models import (
 from weblate.trans.models.component import prefetch_tasks, translation_prefetch_tasks
 from weblate.trans.models.project import prefetch_project_flags
 from weblate.trans.models.translation import GhostTranslation
-from weblate.trans.util import render, sort_unicode
+from weblate.trans.util import render, sort_unicode, translation_percent
 from weblate.utils import messages
 from weblate.utils.ratelimit import reset_rate_limit, session_ratelimit_post
 from weblate.utils.stats import (
@@ -99,7 +99,7 @@ def list_projects(request):
         {
             "allow_index": True,
             "projects": prefetch_project_flags(
-                prefetch_stats(get_paginator(request, projects))
+                get_paginator(request, prefetch_stats(projects))
             ),
             "title": gettext("Projects"),
             "query_string": query_string,
@@ -133,6 +133,22 @@ def show_engage(request, path):
         try_set_language(language.code)
         translate_object = obj
         project = obj.project
+        stats_obj = obj.stats
+
+        all_count = strings_count = stats_obj.all
+        translated_count = stats_obj.translated
+
+        # Remove glossary from counts
+        glossaries = prefetch_stats(
+            Translation.objects.filter(
+                language=language, component__in=project.glossaries
+            ).prefetch()
+        )
+        for glossary in prefetch_stats(glossaries):
+            all_count -= glossary.stats.all
+            translated_count -= glossary.stats.translated
+            strings_count -= glossary.stats.all
+
     else:
         project = obj
         language = None
@@ -146,11 +162,17 @@ def show_engage(request, path):
             translate_object = ProjectLanguage(
                 project=project, language=guessed_language
             )
-    full_stats = obj.stats
-    if language:
-        stats_obj = full_stats.get_single_language_stats(language)
-    else:
-        stats_obj = full_stats
+        stats_obj = obj.stats
+
+        all_count = stats_obj.all
+        strings_count = stats_obj.source_strings
+        translated_count = stats_obj.translated
+
+        # Remove glossary from counts
+        for glossary in prefetch_stats(project.glossaries):
+            all_count -= glossary.stats.all
+            translated_count -= glossary.stats.translated
+            strings_count -= glossary.stats.source_strings
 
     return render(
         request,
@@ -160,10 +182,9 @@ def show_engage(request, path):
             "object": obj,
             "path_object": obj,
             "project": project,
-            "full_stats": obj.stats,
-            "languages": stats_obj.languages,
-            "total": obj.stats.source_strings,
-            "percent": stats_obj.translated_percent,
+            "strings_count": strings_count,
+            "languages_count": project.stats.languages,
+            "percent": translation_percent(translated_count, all_count),
             "language": language,
             "translate_object": translate_object,
             "project_link": format_html(
@@ -208,22 +229,23 @@ def show_project_language(request, obj):
     project_object = obj.project
     user = request.user
 
-    last_changes = (
-        Change.objects.last_changes(user, project=project_object)
-        .filter(language=language_object)[:10]
-        .preload()
-    )
+    last_changes = Change.objects.last_changes(
+        user, project=project_object, language=language_object
+    )[:10].preload()
 
     translations = list(obj.translation_set)
 
     # Add ghost translations
     if user.is_authenticated:
         existing = {translation.component.slug for translation in translations}
-        for component in project_object.child_components:
-            if component.slug in existing:
-                continue
-            if component.can_add_new_language(user, fast=True):
-                translations.append(GhostTranslation(component, language_object))
+        missing = project_object.get_child_components_filter(
+            lambda qs: qs.exclude(slug__in=existing)
+        )
+        translations.extend(
+            GhostTranslation(component, language_object)
+            for component in missing
+            if component.can_add_new_language(user, fast=True)
+        )
 
     return render(
         request,
@@ -267,9 +289,8 @@ def show_category_language(request, obj):
     user = request.user
 
     last_changes = (
-        Change.objects.for_category(category_object)
-        .last_changes(user)
-        .filter(language=language_object)[:10]
+        Change.objects.last_changes(user, language=language_object)
+        .for_category(category_object)[:10]
         .preload()
     )
 
@@ -278,11 +299,12 @@ def show_category_language(request, obj):
     # Add ghost translations
     if user.is_authenticated:
         existing = {translation.component.slug for translation in translations}
-        for component in category_object.component_set.all():
-            if component.slug in existing:
-                continue
-            if component.can_add_new_language(user, fast=True):
-                translations.append(GhostTranslation(component, language_object))
+        missing = category_object.component_set.exclude(slug__in=existing)
+        translations.extend(
+            GhostTranslation(component, language_object)
+            for component in missing
+            if component.can_add_new_language(user, fast=True)
+        )
 
     return render(
         request,
@@ -331,7 +353,7 @@ def show_project(request, obj):
     all_components = obj.get_child_components_access(
         user, lambda qs: qs.filter(category=None)
     )
-    all_components = prefetch_stats(get_paginator(request, all_components))
+    all_components = get_paginator(request, prefetch_stats(all_components))
     for component in all_components:
         component.is_shared = None if component.project == obj else component.project
 
@@ -350,10 +372,7 @@ def show_project(request, obj):
             is_shared=component.is_shared,
         )
 
-    language_stats = sort_unicode(
-        language_stats,
-        lambda x: f"{user.profile.get_translation_order(x)}-{x.language}",
-    )
+    language_stats = sort_unicode(language_stats, user.profile.get_translation_order)
 
     components = prefetch_tasks(all_components)
 
@@ -373,7 +392,7 @@ def show_project(request, obj):
             "announcement_form": optional_form(
                 AnnouncementForm, user, "project.edit", obj
             ),
-            "add_form": AddCategoryForm(request, obj),
+            "add_form": AddCategoryForm(request, obj) if obj.can_add_category else None,
             "delete_form": optional_form(
                 ProjectDeleteForm, user, "project.edit", obj, obj=obj
             ),
@@ -414,7 +433,7 @@ def show_category(request, obj):
     last_announcements = all_changes.filter_announcements()[:10].preload()
 
     all_components = obj.get_child_components_access(user)
-    all_components = prefetch_stats(get_paginator(request, all_components))
+    all_components = get_paginator(request, prefetch_stats(all_components))
 
     language_stats = obj.stats.get_language_stats()
     # Show ghost translations for user languages
@@ -445,7 +464,7 @@ def show_category(request, obj):
             "object": obj,
             "path_object": obj,
             "project": obj,
-            "add_form": AddCategoryForm(request, obj),
+            "add_form": AddCategoryForm(request, obj) if obj.can_add_category else None,
             "last_changes": last_changes,
             "last_announcements": last_announcements,
             "language_stats": [stat.obj or stat for stat in language_stats],
@@ -500,10 +519,7 @@ def show_component(request, obj):
     # Show ghost translations for user languages
     add_ghost_translations(obj, user, translations, GhostTranslation)
 
-    translations = sort_unicode(
-        translations,
-        lambda x: f"{user.profile.get_translation_order(x)}-{x.language}",
-    )
+    translations = sort_unicode(translations, user.profile.get_translation_order)
 
     return render(
         request,

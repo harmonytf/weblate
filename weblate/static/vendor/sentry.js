@@ -38,7 +38,7 @@ function registerBackgroundTabDetection() {
 exports.registerBackgroundTabDetection = registerBackgroundTabDetection;
 
 
-},{"./types.js":7,"@sentry/core":58,"@sentry/utils":104}],2:[function(require,module,exports){
+},{"./types.js":8,"@sentry/core":60,"@sentry/utils":109}],2:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -363,17 +363,185 @@ exports.BrowserTracing = BrowserTracing;
 exports.getMetaContent = getMetaContent;
 
 
-},{"./backgroundtab.js":1,"./metrics/index.js":3,"./request.js":5,"./router.js":6,"./types.js":7,"@sentry/core":58,"@sentry/utils":104}],3:[function(require,module,exports){
+},{"./backgroundtab.js":1,"./metrics/index.js":4,"./request.js":6,"./router.js":7,"./types.js":8,"@sentry/core":60,"@sentry/utils":109}],3:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const utils = require('@sentry/utils');
+const getCLS = require('./web-vitals/getCLS.js');
+const getFID = require('./web-vitals/getFID.js');
+const getLCP = require('./web-vitals/getLCP.js');
+const observe = require('./web-vitals/lib/observe.js');
+
+const handlers = {};
+const instrumented = {};
+
+let _previousCls;
+let _previousFid;
+let _previousLcp;
+
+/**
+ * Add a callback that will be triggered when a CLS metric is available.
+ * Returns a cleanup callback which can be called to remove the instrumentation handler.
+ */
+function addClsInstrumentationHandler(callback) {
+  return addMetricObserver('cls', callback, instrumentCls, _previousCls);
+}
+
+/**
+ * Add a callback that will be triggered when a LCP metric is available.
+ * Returns a cleanup callback which can be called to remove the instrumentation handler.
+ */
+function addLcpInstrumentationHandler(callback) {
+  return addMetricObserver('lcp', callback, instrumentLcp, _previousLcp);
+}
+
+/**
+ * Add a callback that will be triggered when a FID metric is available.
+ * Returns a cleanup callback which can be called to remove the instrumentation handler.
+ */
+function addFidInstrumentationHandler(callback) {
+  return addMetricObserver('fid', callback, instrumentFid, _previousFid);
+}
+
+/**
+ * Add a callback that will be triggered when a performance observer is triggered,
+ * and receives the entries of the observer.
+ * Returns a cleanup callback which can be called to remove the instrumentation handler.
+ */
+function addPerformanceInstrumentationHandler(
+  type,
+  callback,
+) {
+  addHandler(type, callback);
+
+  if (!instrumented[type]) {
+    instrumentPerformanceObserver(type);
+    instrumented[type] = true;
+  }
+
+  return getCleanupCallback(type, callback);
+}
+
+/** Trigger all handlers of a given type. */
+function triggerHandlers(type, data) {
+  const typeHandlers = handlers[type];
+
+  if (!typeHandlers || !typeHandlers.length) {
+    return;
+  }
+
+  for (const handler of typeHandlers) {
+    try {
+      handler(data);
+    } catch (e) {
+      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+        utils.logger.error(
+          `Error while triggering instrumentation handler.\nType: ${type}\nName: ${utils.getFunctionName(handler)}\nError:`,
+          e,
+        );
+    }
+  }
+}
+
+function instrumentCls() {
+  getCLS.onCLS(metric => {
+    triggerHandlers('cls', {
+      metric,
+    });
+    _previousCls = metric;
+  });
+}
+
+function instrumentFid() {
+  getFID.onFID(metric => {
+    triggerHandlers('fid', {
+      metric,
+    });
+    _previousFid = metric;
+  });
+}
+
+function instrumentLcp() {
+  getLCP.onLCP(metric => {
+    triggerHandlers('lcp', {
+      metric,
+    });
+    _previousLcp = metric;
+  });
+}
+
+function addMetricObserver(
+  type,
+  callback,
+  instrumentFn,
+  previousValue,
+) {
+  addHandler(type, callback);
+
+  if (!instrumented[type]) {
+    instrumentFn();
+    instrumented[type] = true;
+  }
+
+  if (previousValue) {
+    callback({ metric: previousValue });
+  }
+
+  return getCleanupCallback(type, callback);
+}
+
+function instrumentPerformanceObserver(type) {
+  const options = {};
+
+  // Special per-type options we want to use
+  if (type === 'event') {
+    options.durationThreshold = 0;
+  }
+
+  observe.observe(
+    type,
+    entries => {
+      triggerHandlers(type, { entries });
+    },
+    options,
+  );
+}
+
+function addHandler(type, handler) {
+  handlers[type] = handlers[type] || [];
+  (handlers[type] ).push(handler);
+}
+
+// Get a callback which can be called to remove the instrumentation handler
+function getCleanupCallback(type, callback) {
+  return () => {
+    const typeHandlers = handlers[type];
+
+    if (!typeHandlers) {
+      return;
+    }
+
+    const index = typeHandlers.indexOf(callback);
+    if (index !== -1) {
+      typeHandlers.splice(index, 1);
+    }
+  };
+}
+
+exports.addClsInstrumentationHandler = addClsInstrumentationHandler;
+exports.addFidInstrumentationHandler = addFidInstrumentationHandler;
+exports.addLcpInstrumentationHandler = addLcpInstrumentationHandler;
+exports.addPerformanceInstrumentationHandler = addPerformanceInstrumentationHandler;
+
+
+},{"./web-vitals/getCLS.js":9,"./web-vitals/getFID.js":10,"./web-vitals/getLCP.js":11,"./web-vitals/lib/observe.js":18,"@sentry/utils":109}],4:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
 const utils = require('@sentry/utils');
+const instrument = require('../instrument.js');
 const types = require('../types.js');
-const getCLS = require('../web-vitals/getCLS.js');
-const getFID = require('../web-vitals/getFID.js');
-const getLCP = require('../web-vitals/getLCP.js');
 const getVisibilityWatcher = require('../web-vitals/lib/getVisibilityWatcher.js');
-const observe = require('../web-vitals/lib/observe.js');
 const utils$1 = require('./utils.js');
 
 /**
@@ -407,17 +575,14 @@ function startTrackingWebVitals() {
     if (performance.mark) {
       types.WINDOW.performance.mark('sentry-tracing-init');
     }
-    _trackFID();
+    const fidCallback = _trackFID();
     const clsCallback = _trackCLS();
     const lcpCallback = _trackLCP();
 
     return () => {
-      if (clsCallback) {
-        clsCallback();
-      }
-      if (lcpCallback) {
-        lcpCallback();
-      }
+      fidCallback();
+      clsCallback();
+      lcpCallback();
     };
   }
 
@@ -428,7 +593,7 @@ function startTrackingWebVitals() {
  * Start tracking long tasks.
  */
 function startTrackingLongTasks() {
-  const entryHandler = (entries) => {
+  instrument.addPerformanceInstrumentationHandler('longtask', ({ entries }) => {
     for (const entry of entries) {
       const transaction = core.getActiveTransaction() ;
       if (!transaction) {
@@ -445,16 +610,14 @@ function startTrackingLongTasks() {
         endTimestamp: startTime + duration,
       });
     }
-  };
-
-  observe.observe('longtask', entryHandler);
+  });
 }
 
 /**
  * Start tracking interaction events.
  */
 function startTrackingInteractions() {
-  const entryHandler = (entries) => {
+  instrument.addPerformanceInstrumentationHandler('event', ({ entries }) => {
     for (const entry of entries) {
       const transaction = core.getActiveTransaction() ;
       if (!transaction) {
@@ -474,17 +637,12 @@ function startTrackingInteractions() {
         });
       }
     }
-  };
-
-  observe.observe('event', entryHandler, { durationThreshold: 0 });
+  });
 }
 
 /** Starts tracking the Cumulative Layout Shift on the current page. */
 function _trackCLS() {
-  // See:
-  // https://web.dev/evolving-cls/
-  // https://web.dev/cls-web-tooling/
-  return getCLS.onCLS(metric => {
+  return instrument.addClsInstrumentationHandler(({ metric }) => {
     const entry = metric.entries.pop();
     if (!entry) {
       return;
@@ -498,7 +656,7 @@ function _trackCLS() {
 
 /** Starts tracking the Largest Contentful Paint on the current page. */
 function _trackLCP() {
-  return getLCP.onLCP(metric => {
+  return instrument.addLcpInstrumentationHandler(({ metric }) => {
     const entry = metric.entries.pop();
     if (!entry) {
       return;
@@ -512,7 +670,7 @@ function _trackLCP() {
 
 /** Starts tracking the First Input Delay on the current page. */
 function _trackFID() {
-  getFID.onFID(metric => {
+  return instrument.addFidInstrumentationHandler(({ metric }) => {
     const entry = metric.entries.pop();
     if (!entry) {
       return;
@@ -864,7 +1022,7 @@ exports.startTrackingLongTasks = startTrackingLongTasks;
 exports.startTrackingWebVitals = startTrackingWebVitals;
 
 
-},{"../types.js":7,"../web-vitals/getCLS.js":8,"../web-vitals/getFID.js":9,"../web-vitals/getLCP.js":10,"../web-vitals/lib/getVisibilityWatcher.js":15,"../web-vitals/lib/observe.js":17,"./utils.js":4,"@sentry/core":58,"@sentry/utils":104}],4:[function(require,module,exports){
+},{"../instrument.js":3,"../types.js":8,"../web-vitals/lib/getVisibilityWatcher.js":16,"./utils.js":5,"@sentry/core":60,"@sentry/utils":109}],5:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -894,11 +1052,12 @@ exports._startChild = _startChild;
 exports.isMeasurementValue = isMeasurementValue;
 
 
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
 const utils = require('@sentry/utils');
+const instrument = require('./instrument.js');
 
 /* eslint-disable max-lines */
 
@@ -979,18 +1138,21 @@ function isPerformanceResourceTiming(entry) {
  */
 function addHTTPTimings(span) {
   const url = span.data.url;
-  const observer = new PerformanceObserver(list => {
-    const entries = list.getEntries();
+
+  if (!url) {
+    return;
+  }
+
+  const cleanup = instrument.addPerformanceInstrumentationHandler('resource', ({ entries }) => {
     entries.forEach(entry => {
       if (isPerformanceResourceTiming(entry) && entry.name.endsWith(url)) {
         const spanData = resourceTimingEntryToSpanData(entry);
         spanData.forEach(data => span.setData(...data));
-        observer.disconnect();
+        // In the next tick, clean this handler up
+        // We have to wait here because otherwise this cleans itself up before it is fully done
+        setTimeout(cleanup);
       }
     });
-  });
-  observer.observe({
-    entryTypes: ['resource'],
   });
 }
 
@@ -1339,7 +1501,7 @@ exports.shouldAttachHeaders = shouldAttachHeaders;
 exports.xhrCallback = xhrCallback;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],6:[function(require,module,exports){
+},{"./instrument.js":3,"@sentry/core":60,"@sentry/utils":109}],7:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -1409,7 +1571,7 @@ function instrumentRoutingWithDefaults(
 exports.instrumentRoutingWithDefaults = instrumentRoutingWithDefaults;
 
 
-},{"./types.js":7,"@sentry/utils":104}],7:[function(require,module,exports){
+},{"./types.js":8,"@sentry/utils":109}],8:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -1419,7 +1581,7 @@ const WINDOW = utils.GLOBAL_OBJ ;
 exports.WINDOW = WINDOW;
 
 
-},{"@sentry/utils":104}],8:[function(require,module,exports){
+},{"@sentry/utils":109}],9:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const bindReporter = require('./lib/bindReporter.js');
@@ -1528,7 +1690,7 @@ const onCLS = (onReport) => {
 exports.onCLS = onCLS;
 
 
-},{"./lib/bindReporter.js":11,"./lib/initMetric.js":16,"./lib/observe.js":17,"./lib/onHidden.js":18}],9:[function(require,module,exports){
+},{"./lib/bindReporter.js":12,"./lib/initMetric.js":17,"./lib/observe.js":18,"./lib/onHidden.js":19}],10:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const bindReporter = require('./lib/bindReporter.js');
@@ -1595,7 +1757,7 @@ const onFID = (onReport) => {
 exports.onFID = onFID;
 
 
-},{"./lib/bindReporter.js":11,"./lib/getVisibilityWatcher.js":15,"./lib/initMetric.js":16,"./lib/observe.js":17,"./lib/onHidden.js":18}],10:[function(require,module,exports){
+},{"./lib/bindReporter.js":12,"./lib/getVisibilityWatcher.js":16,"./lib/initMetric.js":17,"./lib/observe.js":18,"./lib/onHidden.js":19}],11:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const bindReporter = require('./lib/bindReporter.js');
@@ -1684,7 +1846,7 @@ const onLCP = (onReport) => {
 exports.onLCP = onLCP;
 
 
-},{"./lib/bindReporter.js":11,"./lib/getActivationStart.js":13,"./lib/getVisibilityWatcher.js":15,"./lib/initMetric.js":16,"./lib/observe.js":17,"./lib/onHidden.js":18}],11:[function(require,module,exports){
+},{"./lib/bindReporter.js":12,"./lib/getActivationStart.js":14,"./lib/getVisibilityWatcher.js":16,"./lib/initMetric.js":17,"./lib/observe.js":18,"./lib/onHidden.js":19}],12:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const bindReporter = (
@@ -1716,7 +1878,7 @@ const bindReporter = (
 exports.bindReporter = bindReporter;
 
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /*
@@ -1747,7 +1909,7 @@ const generateUniqueID = () => {
 exports.generateUniqueID = generateUniqueID;
 
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const getNavigationEntry = require('./getNavigationEntry.js');
@@ -1776,7 +1938,7 @@ const getActivationStart = () => {
 exports.getActivationStart = getActivationStart;
 
 
-},{"./getNavigationEntry.js":14}],14:[function(require,module,exports){
+},{"./getNavigationEntry.js":15}],15:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const types = require('../../types.js');
@@ -1833,7 +1995,7 @@ const getNavigationEntry = () => {
 exports.getNavigationEntry = getNavigationEntry;
 
 
-},{"../../types.js":7}],15:[function(require,module,exports){
+},{"../../types.js":8}],16:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const types = require('../../types.js');
@@ -1891,7 +2053,7 @@ const getVisibilityWatcher = (
 exports.getVisibilityWatcher = getVisibilityWatcher;
 
 
-},{"../../types.js":7,"./onHidden.js":18}],16:[function(require,module,exports){
+},{"../../types.js":8,"./onHidden.js":19}],17:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const types = require('../../types.js');
@@ -1941,7 +2103,7 @@ const initMetric = (name, value) => {
 exports.initMetric = initMetric;
 
 
-},{"../../types.js":7,"./generateUniqueID.js":12,"./getActivationStart.js":13,"./getNavigationEntry.js":14}],17:[function(require,module,exports){
+},{"../../types.js":8,"./generateUniqueID.js":13,"./getActivationStart.js":14,"./getNavigationEntry.js":15}],18:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -1982,7 +2144,7 @@ const observe = (
 exports.observe = observe;
 
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const types = require('../../types.js');
@@ -2022,7 +2184,7 @@ const onHidden = (cb, once) => {
 exports.onHidden = onHidden;
 
 
-},{"../../types.js":7}],19:[function(require,module,exports){
+},{"../../types.js":8}],20:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -2095,7 +2257,7 @@ function addExtensionMethods() {
 exports.addExtensionMethods = addExtensionMethods;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],20:[function(require,module,exports){
+},{"@sentry/core":60,"@sentry/utils":109}],21:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -2110,6 +2272,7 @@ const apollo = require('./node/integrations/apollo.js');
 const lazy = require('./node/integrations/lazy.js');
 const browsertracing = require('./browser/browsertracing.js');
 const request = require('./browser/request.js');
+const instrument = require('./browser/instrument.js');
 const extensions = require('./extensions.js');
 
 
@@ -2138,10 +2301,14 @@ exports.BrowserTracing = browsertracing.BrowserTracing;
 exports.addTracingHeadersToFetchRequest = request.addTracingHeadersToFetchRequest;
 exports.defaultRequestInstrumentationOptions = request.defaultRequestInstrumentationOptions;
 exports.instrumentOutgoingRequests = request.instrumentOutgoingRequests;
+exports.addClsInstrumentationHandler = instrument.addClsInstrumentationHandler;
+exports.addFidInstrumentationHandler = instrument.addFidInstrumentationHandler;
+exports.addLcpInstrumentationHandler = instrument.addLcpInstrumentationHandler;
+exports.addPerformanceInstrumentationHandler = instrument.addPerformanceInstrumentationHandler;
 exports.addExtensionMethods = extensions.addExtensionMethods;
 
 
-},{"./browser/browsertracing.js":2,"./browser/request.js":5,"./extensions.js":19,"./node/integrations/apollo.js":21,"./node/integrations/express.js":22,"./node/integrations/graphql.js":23,"./node/integrations/lazy.js":24,"./node/integrations/mongo.js":25,"./node/integrations/mysql.js":26,"./node/integrations/postgres.js":27,"./node/integrations/prisma.js":28,"@sentry/core":58,"@sentry/utils":104}],21:[function(require,module,exports){
+},{"./browser/browsertracing.js":2,"./browser/instrument.js":3,"./browser/request.js":6,"./extensions.js":20,"./node/integrations/apollo.js":22,"./node/integrations/express.js":23,"./node/integrations/graphql.js":24,"./node/integrations/lazy.js":25,"./node/integrations/mongo.js":26,"./node/integrations/mysql.js":27,"./node/integrations/postgres.js":28,"./node/integrations/prisma.js":29,"@sentry/core":60,"@sentry/utils":109}],22:[function(require,module,exports){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -2327,7 +2494,8 @@ function wrapResolver(
 exports.Apollo = Apollo;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],22:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101}],23:[function(require,module,exports){
+(function (process){(function (){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -2572,7 +2740,24 @@ function instrumentRouter(appOrRouter) {
     }
 
     // Otherwise, the hardcoded path (i.e. a partial route without params) is stored in layer.path
-    const partialRoute = layerRoutePath || layer.path || '';
+    let partialRoute;
+
+    if (layerRoutePath) {
+      partialRoute = layerRoutePath;
+    } else {
+      /**
+       * prevent duplicate segment in _reconstructedRoute param if router match multiple routes before final path
+       * example:
+       * original url: /api/v1/1234
+       * prevent: /api/api/v1/:userId
+       * router structure
+       * /api -> middleware
+       * /api/v1 -> middleware
+       * /1234 -> endpoint with param :userId
+       * final _reconstructedRoute is /api/v1/:userId
+       */
+      partialRoute = preventDuplicateSegments(req.originalUrl, req._reconstructedRoute, layer.path) || '';
+    }
 
     // Normalize the partial route so that it doesn't contain leading or trailing slashes
     // and exclude empty or '*' wildcard routes.
@@ -2593,7 +2778,7 @@ function instrumentRouter(appOrRouter) {
     // Now we check if we are in the "last" part of the route. We determine this by comparing the
     // number of URL segments from the original URL to that of our reconstructed parameterized URL.
     // If we've reached our final destination, we update the transaction name.
-    const urlLength = utils.getNumberOfUrlSegments(req.originalUrl || '') + numExtraSegments;
+    const urlLength = utils.getNumberOfUrlSegments(utils.stripUrlQueryAndFragment(req.originalUrl || '')) + numExtraSegments;
     const routeLength = utils.getNumberOfUrlSegments(req._reconstructedRoute);
 
     if (urlLength === routeLength) {
@@ -2618,6 +2803,79 @@ function instrumentRouter(appOrRouter) {
 }
 
 /**
+ * Recreate layer.route.path from layer.regexp and layer.keys.
+ * Works until express.js used package path-to-regexp@0.1.7
+ * or until layer.keys contain offset attribute
+ *
+ * @param layer the layer to extract the stringified route from
+ *
+ * @returns string in layer.route.path structure 'router/:pathParam' or undefined
+ */
+const extractOriginalRoute = (
+  path,
+  regexp,
+  keys,
+) => {
+  if (!path || !regexp || !keys || Object.keys(keys).length === 0 || !_optionalChain([keys, 'access', _10 => _10[0], 'optionalAccess', _11 => _11.offset])) {
+    return undefined;
+  }
+
+  const orderedKeys = keys.sort((a, b) => a.offset - b.offset);
+
+  // add d flag for getting indices from regexp result
+  const pathRegex = new RegExp(regexp, `${regexp.flags}d`);
+  /**
+   * use custom type cause of TS error with missing indices in RegExpExecArray
+   */
+  const execResult = pathRegex.exec(path) ;
+
+  if (!execResult || !execResult.indices) {
+    return undefined;
+  }
+  /**
+   * remove first match from regex cause contain whole layer.path
+   */
+  const [, ...paramIndices] = execResult.indices;
+
+  if (paramIndices.length !== orderedKeys.length) {
+    return undefined;
+  }
+  let resultPath = path;
+  let indexShift = 0;
+
+  /**
+   * iterate param matches from regexp.exec
+   */
+  paramIndices.forEach(([startOffset, endOffset], index) => {
+    /**
+     * isolate part before param
+     */
+    const substr1 = resultPath.substring(0, startOffset - indexShift);
+    /**
+     * define paramName as replacement in format :pathParam
+     */
+    const replacement = `:${orderedKeys[index].name}`;
+
+    /**
+     * isolate part after param
+     */
+    const substr2 = resultPath.substring(endOffset - indexShift);
+
+    /**
+     * recreate original path but with param replacement
+     */
+    resultPath = substr1 + replacement + substr2;
+
+    /**
+     * calculate new index shift after resultPath was modified
+     */
+    indexShift = indexShift + (endOffset - startOffset - replacement.length);
+  });
+
+  return resultPath;
+};
+
+/**
  * Extracts and stringifies the layer's route which can either be a string with parameters (`users/:id`),
  * a RegEx (`/test/`) or an array of strings and regexes (`['/path1', /\/path[2-5]/, /path/:id]`). Additionally
  * returns extra information about the route, such as if the route is defined as regex or as an array.
@@ -2629,10 +2887,23 @@ function instrumentRouter(appOrRouter) {
  *          if the route was an array (defaults to 0).
  */
 function getLayerRoutePathInfo(layer) {
-  const lrp = _optionalChain([layer, 'access', _10 => _10.route, 'optionalAccess', _11 => _11.path]);
+  let lrp = _optionalChain([layer, 'access', _12 => _12.route, 'optionalAccess', _13 => _13.path]);
 
   const isRegex = utils.isRegExp(lrp);
   const isArray = Array.isArray(lrp);
+
+  if (!lrp) {
+    // parse node.js major version
+    const [major] = process.versions.node.split('.').map(Number);
+
+    // allow call extractOriginalRoute only if node version support Regex d flag, node 16+
+    if (major >= 16) {
+      /**
+       * If lrp does not exist try to recreate original layer path from route regexp
+       */
+      lrp = extractOriginalRoute(layer.path, layer.regexp, layer.keys);
+    }
+  }
 
   if (!lrp) {
     return { isRegex, isArray, numExtraSegments: 0 };
@@ -2672,10 +2943,38 @@ function getLayerRoutePathString(isArray, lrp) {
   return lrp && lrp.toString();
 }
 
+/**
+ * remove duplicate segment contain in layerPath against reconstructedRoute,
+ * and return only unique segment that can be added into reconstructedRoute
+ */
+function preventDuplicateSegments(
+  originalUrl,
+  reconstructedRoute,
+  layerPath,
+) {
+  const originalUrlSplit = _optionalChain([originalUrl, 'optionalAccess', _14 => _14.split, 'call', _15 => _15('/'), 'access', _16 => _16.filter, 'call', _17 => _17(v => !!v)]);
+  let tempCounter = 0;
+  const currentOffset = _optionalChain([reconstructedRoute, 'optionalAccess', _18 => _18.split, 'call', _19 => _19('/'), 'access', _20 => _20.filter, 'call', _21 => _21(v => !!v), 'access', _22 => _22.length]) || 0;
+  const result = _optionalChain([layerPath
+, 'optionalAccess', _23 => _23.split, 'call', _24 => _24('/')
+, 'access', _25 => _25.filter, 'call', _26 => _26(segment => {
+      if (_optionalChain([originalUrlSplit, 'optionalAccess', _27 => _27[currentOffset + tempCounter]]) === segment) {
+        tempCounter += 1;
+        return true;
+      }
+      return false;
+    })
+, 'access', _28 => _28.join, 'call', _29 => _29('/')]);
+  return result;
+}
+
 exports.Express = Express;
+exports.extractOriginalRoute = extractOriginalRoute;
+exports.preventDuplicateSegments = preventDuplicateSegments;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],23:[function(require,module,exports){
+}).call(this)}).call(this,require('_process'))
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101,"_process":137}],24:[function(require,module,exports){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -2756,7 +3055,7 @@ class GraphQL  {
 exports.GraphQL = GraphQL;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],24:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101}],25:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -2809,7 +3108,7 @@ const lazyLoadedNodePerformanceMonitoringIntegrations = [
 exports.lazyLoadedNodePerformanceMonitoringIntegrations = lazyLoadedNodePerformanceMonitoringIntegrations;
 
 
-},{"@sentry/utils":104}],25:[function(require,module,exports){
+},{"@sentry/utils":109}],26:[function(require,module,exports){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -3061,7 +3360,7 @@ class Mongo  {
 exports.Mongo = Mongo;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],26:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101}],27:[function(require,module,exports){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -3134,7 +3433,7 @@ class Mysql  {
     }
 
     function finishSpan(span) {
-      if (!span) {
+      if (!span || span.endTimestamp) {
         return;
       }
 
@@ -3178,9 +3477,14 @@ class Mysql  {
           });
         }
 
-        return orig.call(this, options, values, function () {
+        // streaming, no callback!
+        const query = orig.call(this, options, values) ;
+
+        query.on('end', () => {
           finishSpan(span);
         });
+
+        return query;
       };
     });
   }
@@ -3189,7 +3493,7 @@ class Mysql  {
 exports.Mysql = Mysql;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],27:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101}],28:[function(require,module,exports){
 var {
   _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -3213,6 +3517,7 @@ class Postgres  {
    constructor(options = {}) {
     this.name = Postgres.id;
     this._usePgNative = !!options.usePgNative;
+    this._module = options.module;
   }
 
   /** @inheritdoc */
@@ -3236,12 +3541,12 @@ class Postgres  {
       return;
     }
 
-    if (this._usePgNative && !_optionalChain([pkg, 'access', _2 => _2.native, 'optionalAccess', _3 => _3.Client])) {
+    const Client = this._usePgNative ? _optionalChain([pkg, 'access', _2 => _2.native, 'optionalAccess', _3 => _3.Client]) : pkg.Client;
+
+    if (!Client) {
       (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.error("Postgres Integration was unable to access 'pg-native' bindings.");
       return;
     }
-
-    const { Client } = this._usePgNative ? pkg.native : pkg;
 
     /**
      * function (query, callback) => void
@@ -3316,7 +3621,7 @@ class Postgres  {
 exports.Postgres = Postgres;
 
 
-},{"./utils/node-utils.js":29,"@sentry/utils":104,"@sentry/utils/cjs/buildPolyfills":96}],28:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/utils":109,"@sentry/utils/cjs/buildPolyfills":101}],29:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -3404,7 +3709,7 @@ class Prisma  {
 exports.Prisma = Prisma;
 
 
-},{"./utils/node-utils.js":29,"@sentry/core":58,"@sentry/utils":104}],29:[function(require,module,exports){
+},{"./utils/node-utils.js":30,"@sentry/core":60,"@sentry/utils":109}],30:[function(require,module,exports){
 var {
  _optionalChain
 } = require('@sentry/utils/cjs/buildPolyfills');
@@ -3427,7 +3732,7 @@ function shouldDisableAutoInstrumentation(getCurrentHub) {
 exports.shouldDisableAutoInstrumentation = shouldDisableAutoInstrumentation;
 
 
-},{"@sentry/utils/cjs/buildPolyfills":96}],30:[function(require,module,exports){
+},{"@sentry/utils/cjs/buildPolyfills":101}],31:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -3534,6 +3839,7 @@ class BrowserClient extends core.BaseClient {
       return;
     }
 
+    // This is really the only place where we want to check for a DSN and only send outcomes then
     if (!this._dsn) {
       (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log('No dsn provided, will not send outcomes');
       return;
@@ -3549,7 +3855,7 @@ class BrowserClient extends core.BaseClient {
 exports.BrowserClient = BrowserClient;
 
 
-},{"./eventbuilder.js":31,"./helpers.js":32,"./userfeedback.js":50,"@sentry/core":58,"@sentry/utils":104}],31:[function(require,module,exports){
+},{"./eventbuilder.js":32,"./helpers.js":33,"./userfeedback.js":51,"@sentry/core":60,"@sentry/utils":109}],32:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -3864,7 +4170,7 @@ exports.exceptionFromError = exceptionFromError;
 exports.parseStackFrames = parseStackFrames;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],32:[function(require,module,exports){
+},{"@sentry/core":60,"@sentry/utils":109}],33:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -4025,7 +4331,7 @@ exports.shouldIgnoreOnError = shouldIgnoreOnError;
 exports.wrap = wrap;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],33:[function(require,module,exports){
+},{"@sentry/core":60,"@sentry/utils":109}],34:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -4071,12 +4377,14 @@ exports.SDK_VERSION = core.SDK_VERSION;
 exports.Scope = core.Scope;
 exports.addBreadcrumb = core.addBreadcrumb;
 exports.addGlobalEventProcessor = core.addGlobalEventProcessor;
+exports.addIntegration = core.addIntegration;
 exports.addTracingExtensions = core.addTracingExtensions;
 exports.captureEvent = core.captureEvent;
 exports.captureException = core.captureException;
 exports.captureMessage = core.captureMessage;
 exports.close = core.close;
 exports.configureScope = core.configureScope;
+exports.continueTrace = core.continueTrace;
 exports.createTransport = core.createTransport;
 exports.extractTraceparentData = core.extractTraceparentData;
 exports.flush = core.flush;
@@ -4139,7 +4447,7 @@ exports.Dedupe = dedupe.Dedupe;
 exports.Integrations = INTEGRATIONS;
 
 
-},{"./client.js":30,"./eventbuilder.js":31,"./helpers.js":32,"./integrations/breadcrumbs.js":34,"./integrations/dedupe.js":35,"./integrations/globalhandlers.js":36,"./integrations/httpcontext.js":37,"./integrations/index.js":38,"./integrations/linkederrors.js":39,"./integrations/trycatch.js":40,"./profiling/hubextensions.js":41,"./profiling/integration.js":42,"./sdk.js":44,"./stack-parsers.js":45,"./transports/fetch.js":46,"./transports/offline.js":47,"./transports/xhr.js":49,"./userfeedback.js":50,"@sentry-internal/tracing":20,"@sentry/core":58,"@sentry/replay":86}],34:[function(require,module,exports){
+},{"./client.js":31,"./eventbuilder.js":32,"./helpers.js":33,"./integrations/breadcrumbs.js":35,"./integrations/dedupe.js":36,"./integrations/globalhandlers.js":37,"./integrations/httpcontext.js":38,"./integrations/index.js":39,"./integrations/linkederrors.js":40,"./integrations/trycatch.js":41,"./profiling/hubextensions.js":42,"./profiling/integration.js":43,"./sdk.js":45,"./stack-parsers.js":46,"./transports/fetch.js":47,"./transports/offline.js":48,"./transports/xhr.js":50,"./userfeedback.js":51,"@sentry-internal/tracing":21,"@sentry/core":60,"@sentry/replay":90}],35:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -4451,7 +4759,7 @@ function _isEvent(event) {
 exports.Breadcrumbs = Breadcrumbs;
 
 
-},{"../helpers.js":32,"@sentry/core":58,"@sentry/utils":104}],35:[function(require,module,exports){
+},{"../helpers.js":33,"@sentry/core":60,"@sentry/utils":109}],36:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -4475,36 +4783,30 @@ class Dedupe  {
     this.name = Dedupe.id;
   }
 
+  /** @inheritDoc */
+   setupOnce(_addGlobaleventProcessor, _getCurrentHub) {
+    // noop
+  }
+
   /**
    * @inheritDoc
    */
-   setupOnce(addGlobalEventProcessor, getCurrentHub) {
-    const eventProcessor = currentEvent => {
-      // We want to ignore any non-error type events, e.g. transactions or replays
-      // These should never be deduped, and also not be compared against as _previousEvent.
-      if (currentEvent.type) {
-        return currentEvent;
-      }
-
-      const self = getCurrentHub().getIntegration(Dedupe);
-      if (self) {
-        // Juuust in case something goes wrong
-        try {
-          if (_shouldDropEvent(currentEvent, self._previousEvent)) {
-            (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('Event dropped due to being a duplicate of previously captured event.');
-            return null;
-          }
-        } catch (_oO) {
-          return (self._previousEvent = currentEvent);
-        }
-
-        return (self._previousEvent = currentEvent);
-      }
+   processEvent(currentEvent) {
+    // We want to ignore any non-error type events, e.g. transactions or replays
+    // These should never be deduped, and also not be compared against as _previousEvent.
+    if (currentEvent.type) {
       return currentEvent;
-    };
+    }
 
-    eventProcessor.id = this.name;
-    addGlobalEventProcessor(eventProcessor);
+    // Juuust in case something goes wrong
+    try {
+      if (_shouldDropEvent(currentEvent, this._previousEvent)) {
+        (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('Event dropped due to being a duplicate of previously captured event.');
+        return null;
+      }
+    } catch (_oO) {} // eslint-disable-line no-empty
+
+    return (this._previousEvent = currentEvent);
   }
 } Dedupe.__initStatic();
 
@@ -4669,7 +4971,7 @@ function _getFramesFromEvent(event) {
 exports.Dedupe = Dedupe;
 
 
-},{"@sentry/utils":104}],36:[function(require,module,exports){
+},{"@sentry/utils":109}],37:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -4922,10 +5224,9 @@ function getHubAndOptions() {
 exports.GlobalHandlers = GlobalHandlers;
 
 
-},{"../eventbuilder.js":31,"../helpers.js":32,"@sentry/core":58,"@sentry/utils":104}],37:[function(require,module,exports){
+},{"../eventbuilder.js":32,"../helpers.js":33,"@sentry/core":60,"@sentry/utils":109}],38:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
-const core = require('@sentry/core');
 const helpers = require('../helpers.js');
 
 /** HttpContext integration collects information about HTTP request headers */
@@ -4947,36 +5248,36 @@ class HttpContext  {
    * @inheritDoc
    */
    setupOnce() {
-    core.addGlobalEventProcessor((event) => {
-      if (core.getCurrentHub().getIntegration(HttpContext)) {
-        // if none of the information we want exists, don't bother
-        if (!helpers.WINDOW.navigator && !helpers.WINDOW.location && !helpers.WINDOW.document) {
-          return event;
-        }
+    // noop
+  }
 
-        // grab as much info as exists and add it to the event
-        const url = (event.request && event.request.url) || (helpers.WINDOW.location && helpers.WINDOW.location.href);
-        const { referrer } = helpers.WINDOW.document || {};
-        const { userAgent } = helpers.WINDOW.navigator || {};
+  /** @inheritDoc */
+   preprocessEvent(event) {
+    // if none of the information we want exists, don't bother
+    if (!helpers.WINDOW.navigator && !helpers.WINDOW.location && !helpers.WINDOW.document) {
+      return;
+    }
 
-        const headers = {
-          ...(event.request && event.request.headers),
-          ...(referrer && { Referer: referrer }),
-          ...(userAgent && { 'User-Agent': userAgent }),
-        };
-        const request = { ...event.request, ...(url && { url }), headers };
+    // grab as much info as exists and add it to the event
+    const url = (event.request && event.request.url) || (helpers.WINDOW.location && helpers.WINDOW.location.href);
+    const { referrer } = helpers.WINDOW.document || {};
+    const { userAgent } = helpers.WINDOW.navigator || {};
 
-        return { ...event, request };
-      }
-      return event;
-    });
+    const headers = {
+      ...(event.request && event.request.headers),
+      ...(referrer && { Referer: referrer }),
+      ...(userAgent && { 'User-Agent': userAgent }),
+    };
+    const request = { ...event.request, ...(url && { url }), headers };
+
+    event.request = request;
   }
 } HttpContext.__initStatic();
 
 exports.HttpContext = HttpContext;
 
 
-},{"../helpers.js":32,"@sentry/core":58}],38:[function(require,module,exports){
+},{"../helpers.js":33}],39:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const globalhandlers = require('./globalhandlers.js');
@@ -4996,7 +5297,7 @@ exports.HttpContext = httpcontext.HttpContext;
 exports.Dedupe = dedupe.Dedupe;
 
 
-},{"./breadcrumbs.js":34,"./dedupe.js":35,"./globalhandlers.js":36,"./httpcontext.js":37,"./linkederrors.js":39,"./trycatch.js":40}],39:[function(require,module,exports){
+},{"./breadcrumbs.js":35,"./dedupe.js":36,"./globalhandlers.js":37,"./httpcontext.js":38,"./linkederrors.js":40,"./trycatch.js":41}],40:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -5059,7 +5360,7 @@ class LinkedErrors  {
 exports.LinkedErrors = LinkedErrors;
 
 
-},{"../eventbuilder.js":31,"@sentry/utils":104}],40:[function(require,module,exports){
+},{"../eventbuilder.js":32,"@sentry/utils":109}],41:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -5346,7 +5647,7 @@ function _wrapEventTarget(target) {
 exports.TryCatch = TryCatch;
 
 
-},{"../helpers.js":32,"@sentry/utils":104}],41:[function(require,module,exports){
+},{"../helpers.js":33,"@sentry/utils":109}],42:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -5596,7 +5897,7 @@ exports.onProfilingStartRouteTransaction = onProfilingStartRouteTransaction;
 exports.wrapTransactionWithProfiling = wrapTransactionWithProfiling;
 
 
-},{"../helpers.js":32,"./utils.js":43,"@sentry/core":58,"@sentry/utils":104}],42:[function(require,module,exports){
+},{"../helpers.js":33,"./utils.js":44,"@sentry/core":60,"@sentry/utils":109}],43:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils$1 = require('@sentry/utils');
@@ -5622,7 +5923,7 @@ class BrowserProfilingIntegration  {
   /**
    * @inheritDoc
    */
-   setupOnce(addGlobalEventProcessor, getCurrentHub) {
+   setupOnce(_addGlobalEventProcessor, getCurrentHub) {
     this.getCurrentHub = getCurrentHub;
     const client = this.getCurrentHub().getClient() ;
 
@@ -5684,7 +5985,7 @@ class BrowserProfilingIntegration  {
 exports.BrowserProfilingIntegration = BrowserProfilingIntegration;
 
 
-},{"./hubextensions.js":41,"./utils.js":43,"@sentry/utils":104}],43:[function(require,module,exports){
+},{"./hubextensions.js":42,"./utils.js":44,"@sentry/utils":109}],44:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -6142,7 +6443,7 @@ exports.findProfiledTransactionsFromEnvelope = findProfiledTransactionsFromEnvel
 exports.isValidSampleRate = isValidSampleRate;
 
 
-},{"../helpers.js":32,"@sentry/core":58,"@sentry/utils":104}],44:[function(require,module,exports){
+},{"../helpers.js":33,"@sentry/core":60,"@sentry/utils":109}],45:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -6408,7 +6709,7 @@ exports.showReportDialog = showReportDialog;
 exports.wrap = wrap;
 
 
-},{"./client.js":30,"./helpers.js":32,"./integrations/breadcrumbs.js":34,"./integrations/dedupe.js":35,"./integrations/globalhandlers.js":36,"./integrations/httpcontext.js":37,"./integrations/linkederrors.js":39,"./integrations/trycatch.js":40,"./stack-parsers.js":45,"./transports/fetch.js":46,"./transports/xhr.js":49,"@sentry/core":58,"@sentry/utils":104}],45:[function(require,module,exports){
+},{"./client.js":31,"./helpers.js":33,"./integrations/breadcrumbs.js":35,"./integrations/dedupe.js":36,"./integrations/globalhandlers.js":37,"./integrations/httpcontext.js":38,"./integrations/linkederrors.js":40,"./integrations/trycatch.js":41,"./stack-parsers.js":46,"./transports/fetch.js":47,"./transports/xhr.js":50,"@sentry/core":60,"@sentry/utils":109}],46:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -6586,7 +6887,7 @@ exports.opera11StackLineParser = opera11StackLineParser;
 exports.winjsStackLineParser = winjsStackLineParser;
 
 
-},{"@sentry/utils":104}],46:[function(require,module,exports){
+},{"@sentry/utils":109}],47:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -6654,7 +6955,7 @@ function makeFetchTransport(
 exports.makeFetchTransport = makeFetchTransport;
 
 
-},{"./utils.js":48,"@sentry/core":58,"@sentry/utils":104}],47:[function(require,module,exports){
+},{"./utils.js":49,"@sentry/core":60,"@sentry/utils":109}],48:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -6794,7 +7095,7 @@ exports.makeBrowserOfflineTransport = makeBrowserOfflineTransport;
 exports.pop = pop;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],48:[function(require,module,exports){
+},{"@sentry/core":60,"@sentry/utils":109}],49:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -6884,7 +7185,7 @@ exports.clearCachedFetchImplementation = clearCachedFetchImplementation;
 exports.getNativeFetchImplementation = getNativeFetchImplementation;
 
 
-},{"../helpers.js":32,"@sentry/utils":104}],49:[function(require,module,exports){
+},{"../helpers.js":33,"@sentry/utils":109}],50:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
@@ -6940,7 +7241,7 @@ function makeXHRTransport(options) {
 exports.makeXHRTransport = makeXHRTransport;
 
 
-},{"@sentry/core":58,"@sentry/utils":104}],50:[function(require,module,exports){
+},{"@sentry/core":60,"@sentry/utils":109}],51:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -6985,7 +7286,7 @@ function createUserFeedbackEnvelopeItem(feedback) {
 exports.createUserFeedbackEnvelope = createUserFeedbackEnvelope;
 
 
-},{"@sentry/utils":104}],51:[function(require,module,exports){
+},{"@sentry/utils":109}],52:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -7080,7 +7381,7 @@ exports.getEnvelopeEndpointWithUrlEncodedAuth = getEnvelopeEndpointWithUrlEncode
 exports.getReportDialogEndpoint = getReportDialogEndpoint;
 
 
-},{"@sentry/utils":104}],52:[function(require,module,exports){
+},{"@sentry/utils":109}],53:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -7151,11 +7452,12 @@ class BaseClient {
     this._numProcessing = 0;
     this._outcomes = {};
     this._hooks = {};
+    this._eventProcessors = [];
 
     if (options.dsn) {
       this._dsn = utils.makeDsn(options.dsn);
     } else {
-      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('No DSN provided, client will not do anything.');
+      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('No DSN provided, client will not send events.');
     }
 
     if (this._dsn) {
@@ -7244,11 +7546,6 @@ class BaseClient {
    * @inheritDoc
    */
    captureSession(session$1) {
-    if (!this._isEnabled()) {
-      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('SDK not enabled, will not capture session.');
-      return;
-    }
-
     if (!(typeof session$1.release === 'string')) {
       (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('Discarded session because of missing or non-string release');
     } else {
@@ -7312,11 +7609,21 @@ class BaseClient {
     });
   }
 
+  /** Get all installed event processors. */
+   getEventProcessors() {
+    return this._eventProcessors;
+  }
+
+  /** @inheritDoc */
+   addEventProcessor(eventProcessor) {
+    this._eventProcessors.push(eventProcessor);
+  }
+
   /**
    * Sets up the integrations
    */
-   setupIntegrations() {
-    if (this._isEnabled() && !this._integrationsInitialized) {
+   setupIntegrations(forceInitialize) {
+    if ((forceInitialize && !this._integrationsInitialized) || (this._isEnabled() && !this._integrationsInitialized)) {
       this._integrations = integration.setupIntegrations(this, this._options.integrations);
       this._integrationsInitialized = true;
     }
@@ -7356,23 +7663,21 @@ class BaseClient {
    sendEvent(event, hint = {}) {
     this.emit('beforeSendEvent', event, hint);
 
-    if (this._dsn) {
-      let env = envelope.createEventEnvelope(event, this._dsn, this._options._metadata, this._options.tunnel);
+    let env = envelope.createEventEnvelope(event, this._dsn, this._options._metadata, this._options.tunnel);
 
-      for (const attachment of hint.attachments || []) {
-        env = utils.addItemToEnvelope(
-          env,
-          utils.createAttachmentEnvelopeItem(
-            attachment,
-            this._options.transportOptions && this._options.transportOptions.textEncoder,
-          ),
-        );
-      }
+    for (const attachment of hint.attachments || []) {
+      env = utils.addItemToEnvelope(
+        env,
+        utils.createAttachmentEnvelopeItem(
+          attachment,
+          this._options.transportOptions && this._options.transportOptions.textEncoder,
+        ),
+      );
+    }
 
-      const promise = this._sendEnvelope(env);
-      if (promise) {
-        promise.then(sendResponse => this.emit('afterSendEvent', event, sendResponse), null);
-      }
+    const promise = this._sendEnvelope(env);
+    if (promise) {
+      promise.then(sendResponse => this.emit('afterSendEvent', event, sendResponse), null);
     }
   }
 
@@ -7380,10 +7685,8 @@ class BaseClient {
    * @inheritDoc
    */
    sendSession(session) {
-    if (this._dsn) {
-      const env = envelope.createSessionEnvelope(session, this._dsn, this._options._metadata, this._options.tunnel);
-      void this._sendEnvelope(env);
-    }
+    const env = envelope.createSessionEnvelope(session, this._dsn, this._options._metadata, this._options.tunnel);
+    void this._sendEnvelope(env);
   }
 
   /**
@@ -7496,9 +7799,9 @@ class BaseClient {
     });
   }
 
-  /** Determines whether this SDK is enabled and a valid Dsn is present. */
+  /** Determines whether this SDK is enabled and a transport is present. */
    _isEnabled() {
-    return this.getOptions().enabled !== false && this._dsn !== undefined;
+    return this.getOptions().enabled !== false && this._transport !== undefined;
   }
 
   /**
@@ -7524,7 +7827,7 @@ class BaseClient {
 
     this.emit('preprocessEvent', event, hint);
 
-    return prepareEvent.prepareEvent(options, event, hint, scope).then(evt => {
+    return prepareEvent.prepareEvent(options, event, hint, scope, this).then(evt => {
       if (evt === null) {
         return evt;
       }
@@ -7599,10 +7902,6 @@ class BaseClient {
    _processEvent(event, hint, scope) {
     const options = this.getOptions();
     const { sampleRate } = options;
-
-    if (!this._isEnabled()) {
-      return utils.rejectedSyncPromise(new utils.SentryError('SDK not enabled, will not capture event.', 'log'));
-    }
 
     const isTransaction = isTransactionEvent(event);
     const isError = isErrorEvent(event);
@@ -7703,9 +8002,9 @@ class BaseClient {
    * @inheritdoc
    */
    _sendEnvelope(envelope) {
-    if (this._transport && this._dsn) {
-      this.emit('beforeEnvelope', envelope);
+    this.emit('beforeEnvelope', envelope);
 
+    if (this._isEnabled() && this._transport) {
       return this._transport.send(envelope).then(null, reason => {
         (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.error('Error while sending event:', reason);
       });
@@ -7795,7 +8094,7 @@ function isTransactionEvent(event) {
 exports.BaseClient = BaseClient;
 
 
-},{"./api.js":51,"./envelope.js":55,"./integration.js":59,"./session.js":68,"./tracing/dynamicSamplingContext.js":70,"./utils/prepareEvent.js":84,"@sentry/utils":104}],53:[function(require,module,exports){
+},{"./api.js":52,"./envelope.js":56,"./integration.js":61,"./session.js":70,"./tracing/dynamicSamplingContext.js":72,"./utils/prepareEvent.js":88,"@sentry/utils":109}],54:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -7843,7 +8142,7 @@ function createCheckInEnvelopeItem(checkIn) {
 exports.createCheckInEnvelope = createCheckInEnvelope;
 
 
-},{"@sentry/utils":104}],54:[function(require,module,exports){
+},{"@sentry/utils":109}],55:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const DEFAULT_ENVIRONMENT = 'production';
@@ -7851,7 +8150,7 @@ const DEFAULT_ENVIRONMENT = 'production';
 exports.DEFAULT_ENVIRONMENT = DEFAULT_ENVIRONMENT;
 
 
-},{}],55:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -7883,7 +8182,7 @@ function createSessionEnvelope(
   const envelopeHeaders = {
     sent_at: new Date().toISOString(),
     ...(sdkInfo && { sdk: sdkInfo }),
-    ...(!!tunnel && { dsn: utils.dsnToString(dsn) }),
+    ...(!!tunnel && dsn && { dsn: utils.dsnToString(dsn) }),
   };
 
   const envelopeItem =
@@ -7930,7 +8229,66 @@ exports.createEventEnvelope = createEventEnvelope;
 exports.createSessionEnvelope = createSessionEnvelope;
 
 
-},{"@sentry/utils":104}],56:[function(require,module,exports){
+},{"@sentry/utils":109}],57:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const utils = require('@sentry/utils');
+
+/**
+ * Returns the global event processors.
+ */
+function getGlobalEventProcessors() {
+  return utils.getGlobalSingleton('globalEventProcessors', () => []);
+}
+
+/**
+ * Add a EventProcessor to be kept globally.
+ * @param callback EventProcessor to add
+ */
+function addGlobalEventProcessor(callback) {
+  getGlobalEventProcessors().push(callback);
+}
+
+/**
+ * Process an array of event processors, returning the processed event (or `null` if the event was dropped).
+ */
+function notifyEventProcessors(
+  processors,
+  event,
+  hint,
+  index = 0,
+) {
+  return new utils.SyncPromise((resolve, reject) => {
+    const processor = processors[index];
+    if (event === null || typeof processor !== 'function') {
+      resolve(event);
+    } else {
+      const result = processor({ ...event }, hint) ;
+
+      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+        processor.id &&
+        result === null &&
+        utils.logger.log(`Event processor "${processor.id}" dropped event`);
+
+      if (utils.isThenable(result)) {
+        void result
+          .then(final => notifyEventProcessors(processors, final, hint, index + 1).then(resolve))
+          .then(null, reject);
+      } else {
+        void notifyEventProcessors(processors, result, hint, index + 1)
+          .then(resolve)
+          .then(null, reject);
+      }
+    }
+  });
+}
+
+exports.addGlobalEventProcessor = addGlobalEventProcessor;
+exports.getGlobalEventProcessors = getGlobalEventProcessors;
+exports.notifyEventProcessors = notifyEventProcessors;
+
+
+},{"@sentry/utils":109}],58:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -8188,7 +8546,7 @@ exports.startTransaction = startTransaction;
 exports.withScope = withScope;
 
 
-},{"./hub.js":57,"@sentry/utils":104}],57:[function(require,module,exports){
+},{"./hub.js":59,"@sentry/utils":109}],59:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -8773,7 +9131,7 @@ exports.setAsyncContextStrategy = setAsyncContextStrategy;
 exports.setHubOnCarrier = setHubOnCarrier;
 
 
-},{"./constants.js":54,"./scope.js":65,"./session.js":68,"@sentry/utils":104}],58:[function(require,module,exports){
+},{"./constants.js":55,"./scope.js":67,"./session.js":70,"@sentry/utils":109}],60:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const hubextensions = require('./tracing/hubextensions.js');
@@ -8790,6 +9148,7 @@ const hub = require('./hub.js');
 const session = require('./session.js');
 const sessionflusher = require('./sessionflusher.js');
 const scope = require('./scope.js');
+const eventProcessors = require('./eventProcessors.js');
 const api = require('./api.js');
 const baseclient = require('./baseclient.js');
 const serverRuntimeClient = require('./server-runtime-client.js');
@@ -8803,6 +9162,7 @@ const index = require('./integrations/index.js');
 const prepareEvent = require('./utils/prepareEvent.js');
 const checkin = require('./checkin.js');
 const hasTracingEnabled = require('./utils/hasTracingEnabled.js');
+const isSentryRequestUrl = require('./utils/isSentryRequestUrl.js');
 const constants = require('./constants.js');
 const metadata = require('./integrations/metadata.js');
 const functiontostring = require('./integrations/functiontostring.js');
@@ -8823,6 +9183,7 @@ Object.defineProperty(exports, 'SpanStatus', {
   enumerable: true,
   get: () => spanstatus.SpanStatus
 });
+exports.continueTrace = trace.continueTrace;
 exports.getActiveSpan = trace.getActiveSpan;
 exports.startActiveSpan = trace.startActiveSpan;
 exports.startInactiveSpan = trace.startInactiveSpan;
@@ -8862,7 +9223,7 @@ exports.makeSession = session.makeSession;
 exports.updateSession = session.updateSession;
 exports.SessionFlusher = sessionflusher.SessionFlusher;
 exports.Scope = scope.Scope;
-exports.addGlobalEventProcessor = scope.addGlobalEventProcessor;
+exports.addGlobalEventProcessor = eventProcessors.addGlobalEventProcessor;
 exports.getEnvelopeEndpointWithUrlEncodedAuth = api.getEnvelopeEndpointWithUrlEncodedAuth;
 exports.getReportDialogEndpoint = api.getReportDialogEndpoint;
 exports.BaseClient = baseclient.BaseClient;
@@ -8872,11 +9233,13 @@ exports.createTransport = base.createTransport;
 exports.makeOfflineTransport = offline.makeOfflineTransport;
 exports.makeMultiplexedTransport = multiplexed.makeMultiplexedTransport;
 exports.SDK_VERSION = version.SDK_VERSION;
+exports.addIntegration = integration.addIntegration;
 exports.getIntegrationsToSetup = integration.getIntegrationsToSetup;
 exports.Integrations = index;
 exports.prepareEvent = prepareEvent.prepareEvent;
 exports.createCheckInEnvelope = checkin.createCheckInEnvelope;
 exports.hasTracingEnabled = hasTracingEnabled.hasTracingEnabled;
+exports.isSentryRequestUrl = isSentryRequestUrl.isSentryRequestUrl;
 exports.DEFAULT_ENVIRONMENT = constants.DEFAULT_ENVIRONMENT;
 exports.ModuleMetadata = metadata.ModuleMetadata;
 exports.FunctionToString = functiontostring.FunctionToString;
@@ -8884,12 +9247,12 @@ exports.InboundFilters = inboundfilters.InboundFilters;
 exports.extractTraceparentData = utils.extractTraceparentData;
 
 
-},{"./api.js":51,"./baseclient.js":52,"./checkin.js":53,"./constants.js":54,"./exports.js":56,"./hub.js":57,"./integration.js":59,"./integrations/functiontostring.js":60,"./integrations/inboundfilters.js":61,"./integrations/index.js":62,"./integrations/metadata.js":63,"./scope.js":65,"./sdk.js":66,"./server-runtime-client.js":67,"./session.js":68,"./sessionflusher.js":69,"./tracing/dynamicSamplingContext.js":70,"./tracing/hubextensions.js":72,"./tracing/idletransaction.js":73,"./tracing/measurement.js":74,"./tracing/span.js":75,"./tracing/spanstatus.js":76,"./tracing/trace.js":77,"./tracing/transaction.js":78,"./tracing/utils.js":79,"./transports/base.js":80,"./transports/multiplexed.js":81,"./transports/offline.js":82,"./utils/hasTracingEnabled.js":83,"./utils/prepareEvent.js":84,"./version.js":85,"@sentry/utils":104}],59:[function(require,module,exports){
+},{"./api.js":52,"./baseclient.js":53,"./checkin.js":54,"./constants.js":55,"./eventProcessors.js":57,"./exports.js":58,"./hub.js":59,"./integration.js":61,"./integrations/functiontostring.js":62,"./integrations/inboundfilters.js":63,"./integrations/index.js":64,"./integrations/metadata.js":65,"./scope.js":67,"./sdk.js":68,"./server-runtime-client.js":69,"./session.js":70,"./sessionflusher.js":71,"./tracing/dynamicSamplingContext.js":72,"./tracing/hubextensions.js":74,"./tracing/idletransaction.js":75,"./tracing/measurement.js":76,"./tracing/span.js":78,"./tracing/spanstatus.js":79,"./tracing/trace.js":80,"./tracing/transaction.js":81,"./tracing/utils.js":82,"./transports/base.js":83,"./transports/multiplexed.js":84,"./transports/offline.js":85,"./utils/hasTracingEnabled.js":86,"./utils/isSentryRequestUrl.js":87,"./utils/prepareEvent.js":88,"./version.js":89,"@sentry/utils":109}],61:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
+const eventProcessors = require('./eventProcessors.js');
 const hub = require('./hub.js');
-const scope = require('./scope.js');
 
 const installedIntegrations = [];
 
@@ -8980,16 +9343,38 @@ function setupIntegration(client, integration, integrationIndex) {
   integrationIndex[integration.name] = integration;
 
   if (installedIntegrations.indexOf(integration.name) === -1) {
-    integration.setupOnce(scope.addGlobalEventProcessor, hub.getCurrentHub);
+    integration.setupOnce(eventProcessors.addGlobalEventProcessor, hub.getCurrentHub);
     installedIntegrations.push(integration.name);
   }
 
   if (client.on && typeof integration.preprocessEvent === 'function') {
-    const callback = integration.preprocessEvent.bind(integration);
+    const callback = integration.preprocessEvent.bind(integration) ;
     client.on('preprocessEvent', (event, hint) => callback(event, hint, client));
   }
 
+  if (client.addEventProcessor && typeof integration.processEvent === 'function') {
+    const callback = integration.processEvent.bind(integration) ;
+
+    const processor = Object.assign((event, hint) => callback(event, hint, client), {
+      id: integration.name,
+    });
+
+    client.addEventProcessor(processor);
+  }
+
   (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log(`Integration installed: ${integration.name}`);
+}
+
+/** Add an integration to the current hub's client. */
+function addIntegration(integration) {
+  const client = hub.getCurrentHub().getClient();
+
+  if (!client || !client.addIntegration) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn(`Cannot add integration "${integration.name}" because no SDK Client is available.`);
+    return;
+  }
+
+  client.addIntegration(integration);
 }
 
 // Polyfill for Array.findIndex(), which is not supported in ES5
@@ -9003,13 +9388,14 @@ function findIndex(arr, callback) {
   return -1;
 }
 
+exports.addIntegration = addIntegration;
 exports.getIntegrationsToSetup = getIntegrationsToSetup;
 exports.installedIntegrations = installedIntegrations;
 exports.setupIntegration = setupIntegration;
 exports.setupIntegrations = setupIntegrations;
 
 
-},{"./hub.js":57,"./scope.js":65,"@sentry/utils":104}],60:[function(require,module,exports){
+},{"./eventProcessors.js":57,"./hub.js":59,"@sentry/utils":109}],62:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -9055,7 +9441,7 @@ class FunctionToString  {
 exports.FunctionToString = FunctionToString;
 
 
-},{"@sentry/utils":104}],61:[function(require,module,exports){
+},{"@sentry/utils":109}],63:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -9065,11 +9451,11 @@ const utils = require('@sentry/utils');
 const DEFAULT_IGNORE_ERRORS = [/^Script error\.?$/, /^Javascript error: Script error\.? on line 0$/];
 
 const DEFAULT_IGNORE_TRANSACTIONS = [
-  /^.*healthcheck.*$/,
-  /^.*healthy.*$/,
-  /^.*live.*$/,
-  /^.*ready.*$/,
-  /^.*heartbeat.*$/,
+  /^.*\/healthcheck$/,
+  /^.*\/healthy$/,
+  /^.*\/live$/,
+  /^.*\/ready$/,
+  /^.*\/heartbeat$/,
   /^.*\/health$/,
   /^.*\/healthz$/,
 ];
@@ -9095,23 +9481,15 @@ class InboundFilters  {
   /**
    * @inheritDoc
    */
-   setupOnce(addGlobalEventProcessor, getCurrentHub) {
-    const eventProcess = (event) => {
-      const hub = getCurrentHub();
-      if (hub) {
-        const self = hub.getIntegration(InboundFilters);
-        if (self) {
-          const client = hub.getClient();
-          const clientOptions = client ? client.getOptions() : {};
-          const options = _mergeOptions(self._options, clientOptions);
-          return _shouldDropEvent(event, options) ? null : event;
-        }
-      }
-      return event;
-    };
+   setupOnce(_addGlobaleventProcessor, _getCurrentHub) {
+    // noop
+  }
 
-    eventProcess.id = this.name;
-    addGlobalEventProcessor(eventProcess);
+  /** @inheritDoc */
+   processEvent(event, _eventHint, client) {
+    const clientOptions = client.getOptions();
+    const options = _mergeOptions(this._options, clientOptions);
+    return _shouldDropEvent(event, options) ? null : event;
   }
 } InboundFilters.__initStatic();
 
@@ -9291,7 +9669,7 @@ exports._mergeOptions = _mergeOptions;
 exports._shouldDropEvent = _shouldDropEvent;
 
 
-},{"@sentry/utils":104}],62:[function(require,module,exports){
+},{"@sentry/utils":109}],64:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const functiontostring = require('./functiontostring.js');
@@ -9303,7 +9681,7 @@ exports.FunctionToString = functiontostring.FunctionToString;
 exports.InboundFilters = inboundfilters.InboundFilters;
 
 
-},{"./functiontostring.js":60,"./inboundfilters.js":61}],63:[function(require,module,exports){
+},{"./functiontostring.js":62,"./inboundfilters.js":63}],65:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -9368,7 +9746,7 @@ class ModuleMetadata  {
 exports.ModuleMetadata = ModuleMetadata;
 
 
-},{"../metadata.js":64,"@sentry/utils":104}],64:[function(require,module,exports){
+},{"../metadata.js":66,"@sentry/utils":109}],66:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -9473,10 +9851,11 @@ exports.getMetadataForUrl = getMetadataForUrl;
 exports.stripMetadataFromStackFrames = stripMetadataFromStackFrames;
 
 
-},{"@sentry/utils":104}],65:[function(require,module,exports){
+},{"@sentry/utils":109}],67:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
+const eventProcessors = require('./eventProcessors.js');
 const session = require('./session.js');
 
 /**
@@ -9902,7 +10281,11 @@ class Scope  {
    * @param hint Object containing additional information about the original exception, for use by the event processors.
    * @hidden
    */
-   applyToEvent(event, hint = {}) {
+   applyToEvent(
+    event,
+    hint = {},
+    additionalEventProcessors,
+  ) {
     if (this._extra && Object.keys(this._extra).length) {
       event.extra = { ...this._extra, ...event.extra };
     }
@@ -9952,7 +10335,12 @@ class Scope  {
       propagationContext: this._propagationContext,
     };
 
-    return this._notifyEventProcessors([...getGlobalEventProcessors(), ...this._eventProcessors], event, hint);
+    // TODO (v8): Update this order to be: Global > Client > Scope
+    return eventProcessors.notifyEventProcessors(
+      [...(additionalEventProcessors || []), ...eventProcessors.getGlobalEventProcessors(), ...this._eventProcessors],
+      event,
+      hint,
+    );
   }
 
   /**
@@ -9984,40 +10372,6 @@ class Scope  {
    */
    _getBreadcrumbs() {
     return this._breadcrumbs;
-  }
-
-  /**
-   * This will be called after {@link applyToEvent} is finished.
-   */
-   _notifyEventProcessors(
-    processors,
-    event,
-    hint,
-    index = 0,
-  ) {
-    return new utils.SyncPromise((resolve, reject) => {
-      const processor = processors[index];
-      if (event === null || typeof processor !== 'function') {
-        resolve(event);
-      } else {
-        const result = processor({ ...event }, hint) ;
-
-        (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
-          processor.id &&
-          result === null &&
-          utils.logger.log(`Event processor "${processor.id}" dropped event`);
-
-        if (utils.isThenable(result)) {
-          void result
-            .then(final => this._notifyEventProcessors(processors, final, hint, index + 1).then(resolve))
-            .then(null, reject);
-        } else {
-          void this._notifyEventProcessors(processors, result, hint, index + 1)
-            .then(resolve)
-            .then(null, reject);
-        }
-      }
-    });
   }
 
   /**
@@ -10056,21 +10410,6 @@ class Scope  {
   }
 }
 
-/**
- * Returns the global event processors.
- */
-function getGlobalEventProcessors() {
-  return utils.getGlobalSingleton('globalEventProcessors', () => []);
-}
-
-/**
- * Add a EventProcessor to be kept globally.
- * @param callback EventProcessor to add
- */
-function addGlobalEventProcessor(callback) {
-  getGlobalEventProcessors().push(callback);
-}
-
 function generatePropagationContext() {
   return {
     traceId: utils.uuid4(),
@@ -10079,10 +10418,9 @@ function generatePropagationContext() {
 }
 
 exports.Scope = Scope;
-exports.addGlobalEventProcessor = addGlobalEventProcessor;
 
 
-},{"./session.js":68,"@sentry/utils":104}],66:[function(require,module,exports){
+},{"./eventProcessors.js":57,"./session.js":70,"@sentry/utils":109}],68:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -10121,13 +10459,14 @@ function initAndBind(
 exports.initAndBind = initAndBind;
 
 
-},{"./hub.js":57,"@sentry/utils":104}],67:[function(require,module,exports){
+},{"./hub.js":59,"@sentry/utils":109}],69:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
 const baseclient = require('./baseclient.js');
 const checkin = require('./checkin.js');
 const hub = require('./hub.js');
+const sessionflusher = require('./sessionflusher.js');
 const hubextensions = require('./tracing/hubextensions.js');
 const dynamicSamplingContext = require('./tracing/dynamicSamplingContext.js');
 require('./tracing/spanstatus.js');
@@ -10138,6 +10477,7 @@ require('./tracing/spanstatus.js');
 class ServerRuntimeClient
 
  extends baseclient.BaseClient {
+
   /**
    * Creates a new Edge SDK instance.
    * @param options Configuration options for this SDK.
@@ -10153,7 +10493,7 @@ class ServerRuntimeClient
    * @inheritDoc
    */
    eventFromException(exception, hint) {
-    return Promise.resolve(utils.eventFromUnknownInput(hub.getCurrentHub, this._options.stackParser, exception, hint));
+    return utils.resolvedSyncPromise(utils.eventFromUnknownInput(hub.getCurrentHub, this._options.stackParser, exception, hint));
   }
 
   /**
@@ -10165,9 +10505,81 @@ class ServerRuntimeClient
     level = 'info',
     hint,
   ) {
-    return Promise.resolve(
+    return utils.resolvedSyncPromise(
       utils.eventFromMessage(this._options.stackParser, message, level, hint, this._options.attachStacktrace),
     );
+  }
+
+  /**
+   * @inheritDoc
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/explicit-module-boundary-types
+   captureException(exception, hint, scope) {
+    // Check if the flag `autoSessionTracking` is enabled, and if `_sessionFlusher` exists because it is initialised only
+    // when the `requestHandler` middleware is used, and hence the expectation is to have SessionAggregates payload
+    // sent to the Server only when the `requestHandler` middleware is used
+    if (this._options.autoSessionTracking && this._sessionFlusher && scope) {
+      const requestSession = scope.getRequestSession();
+
+      // Necessary checks to ensure this is code block is executed only within a request
+      // Should override the status only if `requestSession.status` is `Ok`, which is its initial stage
+      if (requestSession && requestSession.status === 'ok') {
+        requestSession.status = 'errored';
+      }
+    }
+
+    return super.captureException(exception, hint, scope);
+  }
+
+  /**
+   * @inheritDoc
+   */
+   captureEvent(event, hint, scope) {
+    // Check if the flag `autoSessionTracking` is enabled, and if `_sessionFlusher` exists because it is initialised only
+    // when the `requestHandler` middleware is used, and hence the expectation is to have SessionAggregates payload
+    // sent to the Server only when the `requestHandler` middleware is used
+    if (this._options.autoSessionTracking && this._sessionFlusher && scope) {
+      const eventType = event.type || 'exception';
+      const isException =
+        eventType === 'exception' && event.exception && event.exception.values && event.exception.values.length > 0;
+
+      // If the event is of type Exception, then a request session should be captured
+      if (isException) {
+        const requestSession = scope.getRequestSession();
+
+        // Ensure that this is happening within the bounds of a request, and make sure not to override
+        // Session Status if Errored / Crashed
+        if (requestSession && requestSession.status === 'ok') {
+          requestSession.status = 'errored';
+        }
+      }
+    }
+
+    return super.captureEvent(event, hint, scope);
+  }
+
+  /**
+   *
+   * @inheritdoc
+   */
+   close(timeout) {
+    if (this._sessionFlusher) {
+      this._sessionFlusher.close();
+    }
+    return super.close(timeout);
+  }
+
+  /** Method that initialises an instance of SessionFlusher on Client */
+   initSessionFlusher() {
+    const { release, environment } = this._options;
+    if (!release) {
+      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('Cannot initialise an instance of SessionFlusher if no release is provided!');
+    } else {
+      this._sessionFlusher = new sessionflusher.SessionFlusher(this, {
+        release,
+        environment,
+      });
+    }
   }
 
   /**
@@ -10229,6 +10641,18 @@ class ServerRuntimeClient
   }
 
   /**
+   * Method responsible for capturing/ending a request session by calling `incrementSessionStatusCount` to increment
+   * appropriate session aggregates bucket
+   */
+   _captureRequestSession() {
+    if (!this._sessionFlusher) {
+      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('Discarded request mode session because autoSessionTracking option was disabled');
+    } else {
+      this._sessionFlusher.incrementSessionStatusCount();
+    }
+  }
+
+  /**
    * @inheritDoc
    */
    _prepareEvent(event, hint, scope) {
@@ -10281,7 +10705,7 @@ class ServerRuntimeClient
 exports.ServerRuntimeClient = ServerRuntimeClient;
 
 
-},{"./baseclient.js":52,"./checkin.js":53,"./hub.js":57,"./tracing/dynamicSamplingContext.js":70,"./tracing/hubextensions.js":72,"./tracing/spanstatus.js":76,"@sentry/utils":104}],68:[function(require,module,exports){
+},{"./baseclient.js":53,"./checkin.js":54,"./hub.js":59,"./sessionflusher.js":71,"./tracing/dynamicSamplingContext.js":72,"./tracing/hubextensions.js":74,"./tracing/spanstatus.js":79,"@sentry/utils":109}],70:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -10341,6 +10765,10 @@ function updateSession(session, context = {}) {
   }
 
   session.timestamp = context.timestamp || utils.timestampInSeconds();
+
+  if (context.abnormal_mechanism) {
+    session.abnormal_mechanism = context.abnormal_mechanism;
+  }
 
   if (context.ignoreDuration) {
     session.ignoreDuration = context.ignoreDuration;
@@ -10428,6 +10856,7 @@ function sessionToJSON(session) {
     errors: session.errors,
     did: typeof session.did === 'number' || typeof session.did === 'string' ? `${session.did}` : undefined,
     duration: session.duration,
+    abnormal_mechanism: session.abnormal_mechanism,
     attrs: {
       release: session.release,
       environment: session.environment,
@@ -10442,7 +10871,7 @@ exports.makeSession = makeSession;
 exports.updateSession = updateSession;
 
 
-},{"@sentry/utils":104}],69:[function(require,module,exports){
+},{"@sentry/utils":109}],71:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -10548,7 +10977,7 @@ class SessionFlusher  {
 exports.SessionFlusher = SessionFlusher;
 
 
-},{"./hub.js":57,"@sentry/utils":104}],70:[function(require,module,exports){
+},{"./hub.js":59,"@sentry/utils":109}],72:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -10585,7 +11014,7 @@ function getDynamicSamplingContextFromClient(
 exports.getDynamicSamplingContextFromClient = getDynamicSamplingContextFromClient;
 
 
-},{"../constants.js":54,"@sentry/utils":104}],71:[function(require,module,exports){
+},{"../constants.js":55,"@sentry/utils":109}],73:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -10625,14 +11054,14 @@ errorCallback.tag = 'sentry_tracingErrorCallback';
 exports.registerErrorInstrumentation = registerErrorInstrumentation;
 
 
-},{"./utils.js":79,"@sentry/utils":104}],72:[function(require,module,exports){
+},{"./utils.js":82,"@sentry/utils":109}],74:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
 const hub = require('../hub.js');
-const hasTracingEnabled = require('../utils/hasTracingEnabled.js');
 const errors = require('./errors.js');
 const idletransaction = require('./idletransaction.js');
+const sampling = require('./sampling.js');
 const transaction = require('./transaction.js');
 
 /** Returns all trace headers that are currently on the top scope. */
@@ -10645,126 +11074,6 @@ function traceHeaders() {
         'sentry-trace': span.toTraceparent(),
       }
     : {};
-}
-
-/**
- * Makes a sampling decision for the given transaction and stores it on the transaction.
- *
- * Called every time a transaction is created. Only transactions which emerge with a `sampled` value of `true` will be
- * sent to Sentry.
- *
- * @param transaction: The transaction needing a sampling decision
- * @param options: The current client's options, so we can access `tracesSampleRate` and/or `tracesSampler`
- * @param samplingContext: Default and user-provided data which may be used to help make the decision
- *
- * @returns The given transaction with its `sampled` value set
- */
-function sample(
-  transaction,
-  options,
-  samplingContext,
-) {
-  // nothing to do if tracing is not enabled
-  if (!hasTracingEnabled.hasTracingEnabled(options)) {
-    transaction.sampled = false;
-    return transaction;
-  }
-
-  // if the user has forced a sampling decision by passing a `sampled` value in their transaction context, go with that
-  if (transaction.sampled !== undefined) {
-    transaction.setMetadata({
-      sampleRate: Number(transaction.sampled),
-    });
-    return transaction;
-  }
-
-  // we would have bailed already if neither `tracesSampler` nor `tracesSampleRate` nor `enableTracing` were defined, so one of these should
-  // work; prefer the hook if so
-  let sampleRate;
-  if (typeof options.tracesSampler === 'function') {
-    sampleRate = options.tracesSampler(samplingContext);
-    transaction.setMetadata({
-      sampleRate: Number(sampleRate),
-    });
-  } else if (samplingContext.parentSampled !== undefined) {
-    sampleRate = samplingContext.parentSampled;
-  } else if (typeof options.tracesSampleRate !== 'undefined') {
-    sampleRate = options.tracesSampleRate;
-    transaction.setMetadata({
-      sampleRate: Number(sampleRate),
-    });
-  } else {
-    // When `enableTracing === true`, we use a sample rate of 100%
-    sampleRate = 1;
-    transaction.setMetadata({
-      sampleRate,
-    });
-  }
-
-  // Since this is coming from the user (or from a function provided by the user), who knows what we might get. (The
-  // only valid values are booleans or numbers between 0 and 1.)
-  if (!isValidSampleRate(sampleRate)) {
-    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('[Tracing] Discarding transaction because of invalid sample rate.');
-    transaction.sampled = false;
-    return transaction;
-  }
-
-  // if the function returned 0 (or false), or if `tracesSampleRate` is 0, it's a sign the transaction should be dropped
-  if (!sampleRate) {
-    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
-      utils.logger.log(
-        `[Tracing] Discarding transaction because ${
-          typeof options.tracesSampler === 'function'
-            ? 'tracesSampler returned 0 or false'
-            : 'a negative sampling decision was inherited or tracesSampleRate is set to 0'
-        }`,
-      );
-    transaction.sampled = false;
-    return transaction;
-  }
-
-  // Now we roll the dice. Math.random is inclusive of 0, but not of 1, so strict < is safe here. In case sampleRate is
-  // a boolean, the < comparison will cause it to be automatically cast to 1 if it's true and 0 if it's false.
-  transaction.sampled = Math.random() < (sampleRate );
-
-  // if we're not going to keep it, we're done
-  if (!transaction.sampled) {
-    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
-      utils.logger.log(
-        `[Tracing] Discarding transaction because it's not included in the random sample (sampling rate = ${Number(
-          sampleRate,
-        )})`,
-      );
-    return transaction;
-  }
-
-  (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log(`[Tracing] starting ${transaction.op} transaction - ${transaction.name}`);
-  return transaction;
-}
-
-/**
- * Checks the given sample rate to make sure it is valid type and value (a boolean, or a number between 0 and 1).
- */
-function isValidSampleRate(rate) {
-  // we need to check NaN explicitly because it's of type 'number' and therefore wouldn't get caught by this typecheck
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (utils.isNaN(rate) || !(typeof rate === 'number' || typeof rate === 'boolean')) {
-    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
-      utils.logger.warn(
-        `[Tracing] Given sample rate is invalid. Sample rate must be a boolean or a number between 0 and 1. Got ${JSON.stringify(
-          rate,
-        )} of type ${JSON.stringify(typeof rate)}.`,
-      );
-    return false;
-  }
-
-  // in case sampleRate is a boolean, it will get automatically cast to 1 if it's true and 0 if it's false
-  if (rate < 0 || rate > 1) {
-    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
-      utils.logger.warn(`[Tracing] Given sample rate is invalid. Sample rate must be between 0 and 1. Got ${rate}.`);
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -10804,7 +11113,7 @@ The transaction will not be sampled. Please use the ${configInstrumenter} instru
   }
 
   let transaction$1 = new transaction.Transaction(transactionContext, this);
-  transaction$1 = sample(transaction$1, options, {
+  transaction$1 = sampling.sampleTransaction(transaction$1, options, {
     parentSampled: transactionContext.parentSampled,
     transactionContext,
     ...customSamplingContext,
@@ -10834,7 +11143,7 @@ function startIdleTransaction(
   const options = (client && client.getOptions()) || {};
 
   let transaction = new idletransaction.IdleTransaction(transactionContext, hub, idleTimeout, finalTimeout, heartbeatInterval, onScope);
-  transaction = sample(transaction, options, {
+  transaction = sampling.sampleTransaction(transaction, options, {
     parentSampled: transactionContext.parentSampled,
     transactionContext,
     ...customSamplingContext,
@@ -10871,7 +11180,7 @@ exports.addTracingExtensions = addTracingExtensions;
 exports.startIdleTransaction = startIdleTransaction;
 
 
-},{"../hub.js":57,"../utils/hasTracingEnabled.js":83,"./errors.js":71,"./idletransaction.js":73,"./transaction.js":78,"@sentry/utils":104}],73:[function(require,module,exports){
+},{"../hub.js":59,"./errors.js":73,"./idletransaction.js":75,"./sampling.js":77,"./transaction.js":81,"@sentry/utils":109}],75:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -11230,7 +11539,7 @@ exports.IdleTransactionSpanRecorder = IdleTransactionSpanRecorder;
 exports.TRACING_DEFAULTS = TRACING_DEFAULTS;
 
 
-},{"./span.js":75,"./transaction.js":78,"@sentry/utils":104}],74:[function(require,module,exports){
+},{"./span.js":78,"./transaction.js":81,"@sentry/utils":109}],76:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('./utils.js');
@@ -11248,7 +11557,133 @@ function setMeasurement(name, value, unit) {
 exports.setMeasurement = setMeasurement;
 
 
-},{"./utils.js":79}],75:[function(require,module,exports){
+},{"./utils.js":82}],77:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const utils = require('@sentry/utils');
+const hasTracingEnabled = require('../utils/hasTracingEnabled.js');
+
+/**
+ * Makes a sampling decision for the given transaction and stores it on the transaction.
+ *
+ * Called every time a transaction is created. Only transactions which emerge with a `sampled` value of `true` will be
+ * sent to Sentry.
+ *
+ * This method muttes the given `transaction` and will set the `sampled` value on it.
+ * It returns the same transaction, for convenience.
+ */
+function sampleTransaction(
+  transaction,
+  options,
+  samplingContext,
+) {
+  // nothing to do if tracing is not enabled
+  if (!hasTracingEnabled.hasTracingEnabled(options)) {
+    transaction.sampled = false;
+    return transaction;
+  }
+
+  // if the user has forced a sampling decision by passing a `sampled` value in their transaction context, go with that
+  if (transaction.sampled !== undefined) {
+    transaction.setMetadata({
+      sampleRate: Number(transaction.sampled),
+    });
+    return transaction;
+  }
+
+  // we would have bailed already if neither `tracesSampler` nor `tracesSampleRate` nor `enableTracing` were defined, so one of these should
+  // work; prefer the hook if so
+  let sampleRate;
+  if (typeof options.tracesSampler === 'function') {
+    sampleRate = options.tracesSampler(samplingContext);
+    transaction.setMetadata({
+      sampleRate: Number(sampleRate),
+    });
+  } else if (samplingContext.parentSampled !== undefined) {
+    sampleRate = samplingContext.parentSampled;
+  } else if (typeof options.tracesSampleRate !== 'undefined') {
+    sampleRate = options.tracesSampleRate;
+    transaction.setMetadata({
+      sampleRate: Number(sampleRate),
+    });
+  } else {
+    // When `enableTracing === true`, we use a sample rate of 100%
+    sampleRate = 1;
+    transaction.setMetadata({
+      sampleRate,
+    });
+  }
+
+  // Since this is coming from the user (or from a function provided by the user), who knows what we might get. (The
+  // only valid values are booleans or numbers between 0 and 1.)
+  if (!isValidSampleRate(sampleRate)) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.warn('[Tracing] Discarding transaction because of invalid sample rate.');
+    transaction.sampled = false;
+    return transaction;
+  }
+
+  // if the function returned 0 (or false), or if `tracesSampleRate` is 0, it's a sign the transaction should be dropped
+  if (!sampleRate) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+      utils.logger.log(
+        `[Tracing] Discarding transaction because ${
+          typeof options.tracesSampler === 'function'
+            ? 'tracesSampler returned 0 or false'
+            : 'a negative sampling decision was inherited or tracesSampleRate is set to 0'
+        }`,
+      );
+    transaction.sampled = false;
+    return transaction;
+  }
+
+  // Now we roll the dice. Math.random is inclusive of 0, but not of 1, so strict < is safe here. In case sampleRate is
+  // a boolean, the < comparison will cause it to be automatically cast to 1 if it's true and 0 if it's false.
+  transaction.sampled = Math.random() < (sampleRate );
+
+  // if we're not going to keep it, we're done
+  if (!transaction.sampled) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+      utils.logger.log(
+        `[Tracing] Discarding transaction because it's not included in the random sample (sampling rate = ${Number(
+          sampleRate,
+        )})`,
+      );
+    return transaction;
+  }
+
+  (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log(`[Tracing] starting ${transaction.op} transaction - ${transaction.name}`);
+  return transaction;
+}
+
+/**
+ * Checks the given sample rate to make sure it is valid type and value (a boolean, or a number between 0 and 1).
+ */
+function isValidSampleRate(rate) {
+  // we need to check NaN explicitly because it's of type 'number' and therefore wouldn't get caught by this typecheck
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (utils.isNaN(rate) || !(typeof rate === 'number' || typeof rate === 'boolean')) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+      utils.logger.warn(
+        `[Tracing] Given sample rate is invalid. Sample rate must be a boolean or a number between 0 and 1. Got ${JSON.stringify(
+          rate,
+        )} of type ${JSON.stringify(typeof rate)}.`,
+      );
+    return false;
+  }
+
+  // in case sampleRate is a boolean, it will get automatically cast to 1 if it's true and 0 if it's false
+  if (rate < 0 || rate > 1) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) &&
+      utils.logger.warn(`[Tracing] Given sample rate is invalid. Sample rate must be between 0 and 1. Got ${rate}.`);
+    return false;
+  }
+  return true;
+}
+
+exports.sampleTransaction = sampleTransaction;
+
+
+},{"../utils/hasTracingEnabled.js":86,"@sentry/utils":109}],78:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -11633,7 +12068,7 @@ exports.SpanRecorder = SpanRecorder;
 exports.spanStatusfromHttpCode = spanStatusfromHttpCode;
 
 
-},{"@sentry/utils":104}],76:[function(require,module,exports){
+},{"@sentry/utils":109}],79:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /** The status of an Span.
@@ -11679,7 +12114,7 @@ exports.SpanStatus = void 0; (function (SpanStatus) {
 })(exports.SpanStatus || (exports.SpanStatus = {}));
 
 
-},{}],77:[function(require,module,exports){
+},{}],80:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -11883,6 +12318,47 @@ function getActiveSpan() {
   return hub.getCurrentHub().getScope().getSpan();
 }
 
+/**
+ * Continue a trace from `sentry-trace` and `baggage` values.
+ * These values can be obtained from incoming request headers,
+ * or in the browser from `<meta name="sentry-trace">` and `<meta name="baggage">` HTML tags.
+ *
+ * It also takes an optional `request` option, which if provided will also be added to the scope & transaction metadata.
+ * The callback receives a transactionContext that may be used for `startTransaction` or `startSpan`.
+ */
+function continueTrace(
+  {
+    sentryTrace,
+    baggage,
+  }
+
+,
+  callback,
+) {
+  const hub$1 = hub.getCurrentHub();
+  const currentScope = hub$1.getScope();
+
+  const { traceparentData, dynamicSamplingContext, propagationContext } = utils.tracingContextFromHeaders(
+    sentryTrace,
+    baggage,
+  );
+
+  currentScope.setPropagationContext(propagationContext);
+
+  if ((typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && traceparentData) {
+    utils.logger.log(`[Tracing] Continuing trace ${traceparentData.traceId}.`);
+  }
+
+  const transactionContext = {
+    ...traceparentData,
+    metadata: utils.dropUndefinedKeys({
+      dynamicSamplingContext: traceparentData && !dynamicSamplingContext ? {} : dynamicSamplingContext,
+    }),
+  };
+
+  return callback(transactionContext);
+}
+
 function createChildSpanOrTransaction(
   hub,
   parentSpan,
@@ -11904,6 +12380,7 @@ function normalizeContext(context) {
   return ctx;
 }
 
+exports.continueTrace = continueTrace;
 exports.getActiveSpan = getActiveSpan;
 exports.startActiveSpan = startActiveSpan;
 exports.startInactiveSpan = startInactiveSpan;
@@ -11912,7 +12389,7 @@ exports.startSpanManual = startSpanManual;
 exports.trace = trace;
 
 
-},{"../hub.js":57,"../utils/hasTracingEnabled.js":83,"@sentry/utils":104}],78:[function(require,module,exports){
+},{"../hub.js":59,"../utils/hasTracingEnabled.js":86,"@sentry/utils":109}],81:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -12026,6 +12503,92 @@ class Transaction extends span.Span  {
    * @inheritDoc
    */
    finish(endTimestamp) {
+    const transaction = this._finishTransaction(endTimestamp);
+    if (!transaction) {
+      return undefined;
+    }
+    return this._hub.captureEvent(transaction);
+  }
+
+  /**
+   * @inheritDoc
+   */
+   toContext() {
+    const spanContext = super.toContext();
+
+    return utils.dropUndefinedKeys({
+      ...spanContext,
+      name: this.name,
+      trimEnd: this._trimEnd,
+    });
+  }
+
+  /**
+   * @inheritDoc
+   */
+   updateWithContext(transactionContext) {
+    super.updateWithContext(transactionContext);
+
+    this.name = transactionContext.name || '';
+
+    this._trimEnd = transactionContext.trimEnd;
+
+    return this;
+  }
+
+  /**
+   * @inheritdoc
+   *
+   * @experimental
+   */
+   getDynamicSamplingContext() {
+    if (this._frozenDynamicSamplingContext) {
+      return this._frozenDynamicSamplingContext;
+    }
+
+    const hub$1 = this._hub || hub.getCurrentHub();
+    const client = hub$1.getClient();
+
+    if (!client) return {};
+
+    const scope = hub$1.getScope();
+    const dsc = dynamicSamplingContext.getDynamicSamplingContextFromClient(this.traceId, client, scope);
+
+    const maybeSampleRate = this.metadata.sampleRate;
+    if (maybeSampleRate !== undefined) {
+      dsc.sample_rate = `${maybeSampleRate}`;
+    }
+
+    // We don't want to have a transaction name in the DSC if the source is "url" because URLs might contain PII
+    const source = this.metadata.source;
+    if (source && source !== 'url') {
+      dsc.transaction = this.name;
+    }
+
+    if (this.sampled !== undefined) {
+      dsc.sampled = String(this.sampled);
+    }
+
+    // Uncomment if we want to make DSC immutable
+    // this._frozenDynamicSamplingContext = dsc;
+
+    return dsc;
+  }
+
+  /**
+   * Override the current hub with a new one.
+   * Used if you want another hub to finish the transaction.
+   *
+   * @internal
+   */
+   setHub(hub) {
+    this._hub = hub;
+  }
+
+  /**
+   * Finish the transaction & prepare the event to send to Sentry.
+   */
+   _finishTransaction(endTimestamp) {
     // This transaction is already finished, so we should not flush it again.
     if (this.endTimestamp !== undefined) {
       return undefined;
@@ -12104,89 +12667,14 @@ class Transaction extends span.Span  {
 
     (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log(`[Tracing] Finishing ${this.op} transaction: ${this.name}.`);
 
-    return this._hub.captureEvent(transaction);
-  }
-
-  /**
-   * @inheritDoc
-   */
-   toContext() {
-    const spanContext = super.toContext();
-
-    return utils.dropUndefinedKeys({
-      ...spanContext,
-      name: this.name,
-      trimEnd: this._trimEnd,
-    });
-  }
-
-  /**
-   * @inheritDoc
-   */
-   updateWithContext(transactionContext) {
-    super.updateWithContext(transactionContext);
-
-    this.name = transactionContext.name || '';
-
-    this._trimEnd = transactionContext.trimEnd;
-
-    return this;
-  }
-
-  /**
-   * @inheritdoc
-   *
-   * @experimental
-   */
-   getDynamicSamplingContext() {
-    if (this._frozenDynamicSamplingContext) {
-      return this._frozenDynamicSamplingContext;
-    }
-
-    const hub$1 = this._hub || hub.getCurrentHub();
-    const client = hub$1.getClient();
-
-    if (!client) return {};
-
-    const scope = hub$1.getScope();
-    const dsc = dynamicSamplingContext.getDynamicSamplingContextFromClient(this.traceId, client, scope);
-
-    const maybeSampleRate = this.metadata.sampleRate;
-    if (maybeSampleRate !== undefined) {
-      dsc.sample_rate = `${maybeSampleRate}`;
-    }
-
-    // We don't want to have a transaction name in the DSC if the source is "url" because URLs might contain PII
-    const source = this.metadata.source;
-    if (source && source !== 'url') {
-      dsc.transaction = this.name;
-    }
-
-    if (this.sampled !== undefined) {
-      dsc.sampled = String(this.sampled);
-    }
-
-    // Uncomment if we want to make DSC immutable
-    // this._frozenDynamicSamplingContext = dsc;
-
-    return dsc;
-  }
-
-  /**
-   * Override the current hub with a new one.
-   * Used if you want another hub to finish the transaction.
-   *
-   * @internal
-   */
-   setHub(hub) {
-    this._hub = hub;
+    return transaction;
   }
 }
 
 exports.Transaction = Transaction;
 
 
-},{"../hub.js":57,"./dynamicSamplingContext.js":70,"./span.js":75,"@sentry/utils":104}],79:[function(require,module,exports){
+},{"../hub.js":59,"./dynamicSamplingContext.js":72,"./span.js":78,"@sentry/utils":109}],82:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const hub = require('../hub.js');
@@ -12205,7 +12693,7 @@ exports.stripUrlQueryAndFragment = utils.stripUrlQueryAndFragment;
 exports.getActiveTransaction = getActiveTransaction;
 
 
-},{"../hub.js":57,"@sentry/utils":104}],80:[function(require,module,exports){
+},{"../hub.js":59,"@sentry/utils":109}],83:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -12311,7 +12799,7 @@ exports.DEFAULT_TRANSPORT_BUFFER_SIZE = DEFAULT_TRANSPORT_BUFFER_SIZE;
 exports.createTransport = createTransport;
 
 
-},{"@sentry/utils":104}],81:[function(require,module,exports){
+},{"@sentry/utils":109}],84:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -12434,7 +12922,7 @@ exports.eventFromEnvelope = eventFromEnvelope;
 exports.makeMultiplexedTransport = makeMultiplexedTransport;
 
 
-},{"../api.js":51,"@sentry/utils":104}],82:[function(require,module,exports){
+},{"../api.js":52,"@sentry/utils":109}],85:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
@@ -12562,7 +13050,7 @@ exports.START_DELAY = START_DELAY;
 exports.makeOfflineTransport = makeOfflineTransport;
 
 
-},{"@sentry/utils":104}],83:[function(require,module,exports){
+},{"@sentry/utils":109}],86:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const hub = require('../hub.js');
@@ -12589,11 +13077,46 @@ function hasTracingEnabled(
 exports.hasTracingEnabled = hasTracingEnabled;
 
 
-},{"../hub.js":57}],84:[function(require,module,exports){
+},{"../hub.js":59}],87:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+/**
+ * Checks whether given url points to Sentry server
+ * @param url url to verify
+ */
+function isSentryRequestUrl(url, hub) {
+  const client = hub.getClient();
+  const dsn = client && client.getDsn();
+  const tunnel = client && client.getOptions().tunnel;
+
+  return checkDsn(url, dsn) || checkTunnel(url, tunnel);
+}
+
+function checkTunnel(url, tunnel) {
+  if (!tunnel) {
+    return false;
+  }
+
+  return removeTrailingSlash(url) === removeTrailingSlash(tunnel);
+}
+
+function checkDsn(url, dsn) {
+  return dsn ? url.includes(dsn.host) : false;
+}
+
+function removeTrailingSlash(str) {
+  return str[str.length - 1] === '/' ? str.slice(0, -1) : str;
+}
+
+exports.isSentryRequestUrl = isSentryRequestUrl;
+
+
+},{}],88:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const utils = require('@sentry/utils');
 const constants = require('../constants.js');
+const eventProcessors = require('../eventProcessors.js');
 const scope = require('../scope.js');
 
 /**
@@ -12618,6 +13141,7 @@ function prepareEvent(
   event,
   hint,
   scope$1,
+  client,
 ) {
   const { normalizeDepth = 3, normalizeMaxBreadth = 1000 } = options;
   const prepared = {
@@ -12645,6 +13169,8 @@ function prepareEvent(
   // We prepare the result here with a resolved Event.
   let result = utils.resolvedSyncPromise(prepared);
 
+  const clientEventProcessors = client && client.getEventProcessors ? client.getEventProcessors() : [];
+
   // This should be the last thing called, since we want that
   // {@link Hub.addEventProcessor} gets the finished prepared event.
   //
@@ -12663,7 +13189,11 @@ function prepareEvent(
     }
 
     // In case we have a hub we reassign it.
-    result = finalScope.applyToEvent(prepared, hint);
+    result = finalScope.applyToEvent(prepared, hint, clientEventProcessors);
+  } else {
+    // Apply client & global event processors even if there is no scope
+    // TODO (v8): Update the order to be Global > Client
+    result = eventProcessors.notifyEventProcessors([...clientEventProcessors, ...eventProcessors.getGlobalEventProcessors()], prepared, hint);
   }
 
   return result.then(evt => {
@@ -12899,20 +13429,20 @@ exports.applyDebugMeta = applyDebugMeta;
 exports.prepareEvent = prepareEvent;
 
 
-},{"../constants.js":54,"../scope.js":65,"@sentry/utils":104}],85:[function(require,module,exports){
+},{"../constants.js":55,"../eventProcessors.js":57,"../scope.js":67,"@sentry/utils":109}],89:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
-const SDK_VERSION = '7.69.0';
+const SDK_VERSION = '7.75.0';
 
 exports.SDK_VERSION = SDK_VERSION;
 
 
-},{}],86:[function(require,module,exports){
-(function (process){(function (){
+},{}],90:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const core = require('@sentry/core');
 const utils = require('@sentry/utils');
+const tracing = require('@sentry-internal/tracing');
 
 // exporting a separate copy of `WINDOW` rather than exporting the one from `@sentry/browser`
 // prevents the browser package from being bundled in the CDN bundle, and avoids a
@@ -12974,44 +13504,159 @@ var NodeType$1;
     NodeType[NodeType["Comment"] = 5] = "Comment";
 })(NodeType$1 || (NodeType$1 = {}));
 
-function isElement(n) {
+function isElement$1(n) {
     return n.nodeType === n.ELEMENT_NODE;
 }
 function isShadowRoot(n) {
     const host = n === null || n === void 0 ? void 0 : n.host;
-    return Boolean(host && host.shadowRoot && host.shadowRoot === n);
+    return Boolean((host === null || host === void 0 ? void 0 : host.shadowRoot) === n);
 }
-function isInputTypeMasked({ maskInputOptions, tagName, type, }) {
-    if (tagName.toLowerCase() === 'option') {
-        tagName = 'select';
+function isNativeShadowDom(shadowRoot) {
+    return Object.prototype.toString.call(shadowRoot) === '[object ShadowRoot]';
+}
+function fixBrowserCompatibilityIssuesInCSS(cssText) {
+    if (cssText.includes(' background-clip: text;') &&
+        !cssText.includes(' -webkit-background-clip: text;')) {
+        cssText = cssText.replace(' background-clip: text;', ' -webkit-background-clip: text; background-clip: text;');
     }
-    const actualType = typeof type === 'string' ? type.toLowerCase() : undefined;
-    return (maskInputOptions[tagName.toLowerCase()] ||
-        (actualType && maskInputOptions[actualType]) ||
-        actualType === 'password' ||
-        (tagName === 'input' && !type && maskInputOptions['text']));
+    return cssText;
 }
-function hasInputMaskOptions({ tagName, type, maskInputOptions, maskInputSelector, }) {
-    return (maskInputSelector || isInputTypeMasked({ maskInputOptions, tagName, type }));
+function escapeImportStatement(rule) {
+    const { cssText } = rule;
+    if (cssText.split('"').length < 3)
+        return cssText;
+    const statement = ['@import', `url(${JSON.stringify(rule.href)})`];
+    if (rule.layerName === '') {
+        statement.push(`layer`);
+    }
+    else if (rule.layerName) {
+        statement.push(`layer(${rule.layerName})`);
+    }
+    if (rule.supportsText) {
+        statement.push(`supports(${rule.supportsText})`);
+    }
+    if (rule.media.length) {
+        statement.push(rule.media.mediaText);
+    }
+    return statement.join(' ') + ';';
 }
-function maskInputValue({ input, maskInputSelector, unmaskInputSelector, maskInputOptions, tagName, type, value, maskInputFn, }) {
+function stringifyStylesheet(s) {
+    try {
+        const rules = s.rules || s.cssRules;
+        return rules
+            ? fixBrowserCompatibilityIssuesInCSS(Array.from(rules, stringifyRule).join(''))
+            : null;
+    }
+    catch (error) {
+        return null;
+    }
+}
+function stringifyRule(rule) {
+    let importStringified;
+    if (isCSSImportRule(rule)) {
+        try {
+            importStringified =
+                stringifyStylesheet(rule.styleSheet) ||
+                    escapeImportStatement(rule);
+        }
+        catch (error) {
+        }
+    }
+    else if (isCSSStyleRule(rule) && rule.selectorText.includes(':')) {
+        return fixSafariColons(rule.cssText);
+    }
+    return importStringified || rule.cssText;
+}
+function fixSafariColons(cssStringified) {
+    const regex = /(\[(?:[\w-]+)[^\\])(:(?:[\w-]+)\])/gm;
+    return cssStringified.replace(regex, '$1\\$2');
+}
+function isCSSImportRule(rule) {
+    return 'styleSheet' in rule;
+}
+function isCSSStyleRule(rule) {
+    return 'selectorText' in rule;
+}
+class Mirror {
+    constructor() {
+        this.idNodeMap = new Map();
+        this.nodeMetaMap = new WeakMap();
+    }
+    getId(n) {
+        var _a;
+        if (!n)
+            return -1;
+        const id = (_a = this.getMeta(n)) === null || _a === void 0 ? void 0 : _a.id;
+        return id !== null && id !== void 0 ? id : -1;
+    }
+    getNode(id) {
+        return this.idNodeMap.get(id) || null;
+    }
+    getIds() {
+        return Array.from(this.idNodeMap.keys());
+    }
+    getMeta(n) {
+        return this.nodeMetaMap.get(n) || null;
+    }
+    removeNodeFromMap(n) {
+        const id = this.getId(n);
+        this.idNodeMap.delete(id);
+        if (n.childNodes) {
+            n.childNodes.forEach((childNode) => this.removeNodeFromMap(childNode));
+        }
+    }
+    has(id) {
+        return this.idNodeMap.has(id);
+    }
+    hasNode(node) {
+        return this.nodeMetaMap.has(node);
+    }
+    add(n, meta) {
+        const id = meta.id;
+        this.idNodeMap.set(id, n);
+        this.nodeMetaMap.set(n, meta);
+    }
+    replace(id, n) {
+        const oldNode = this.getNode(id);
+        if (oldNode) {
+            const meta = this.nodeMetaMap.get(oldNode);
+            if (meta)
+                this.nodeMetaMap.set(n, meta);
+        }
+        this.idNodeMap.set(id, n);
+    }
+    reset() {
+        this.idNodeMap = new Map();
+        this.nodeMetaMap = new WeakMap();
+    }
+}
+function createMirror() {
+    return new Mirror();
+}
+function shouldMaskInput({ maskInputOptions, tagName, type, }) {
+    if (tagName === 'OPTION') {
+        tagName = 'SELECT';
+    }
+    return Boolean(maskInputOptions[tagName.toLowerCase()] ||
+        (type && maskInputOptions[type]) ||
+        type === 'password' ||
+        (tagName === 'INPUT' && !type && maskInputOptions['text']));
+}
+function maskInputValue({ isMasked, element, value, maskInputFn, }) {
     let text = value || '';
-    if (unmaskInputSelector && input.matches(unmaskInputSelector)) {
+    if (!isMasked) {
         return text;
     }
-    if (input.hasAttribute('data-rr-is-password')) {
-        type = 'password';
+    if (maskInputFn) {
+        text = maskInputFn(text, element);
     }
-    if (isInputTypeMasked({ maskInputOptions, tagName, type }) ||
-        (maskInputSelector && input.matches(maskInputSelector))) {
-        if (maskInputFn) {
-            text = maskInputFn(text);
-        }
-        else {
-            text = '*'.repeat(text.length);
-        }
-    }
-    return text;
+    return '*'.repeat(text.length);
+}
+function toLowerCase(str) {
+    return str.toLowerCase();
+}
+function toUpperCase(str) {
+    return str.toUpperCase();
 }
 const ORIGINAL_ATTRIBUTE_NAME = '__rrweb_original__';
 function is2DCanvasBlank(canvas) {
@@ -13037,11 +13682,11 @@ function getInputType(element) {
     return element.hasAttribute('data-rr-is-password')
         ? 'password'
         : type
-            ? type.toLowerCase()
+            ?
+                toLowerCase(type)
             : null;
 }
 function getInputValue(el, tagName, type) {
-    typeof type === 'string' ? type.toLowerCase() : '';
     if (tagName === 'INPUT' && (type === 'radio' || type === 'checkbox')) {
         return el.getAttribute('value') || '';
     }
@@ -13051,9 +13696,6 @@ function getInputValue(el, tagName, type) {
 let _id = 1;
 const tagNameRegex = new RegExp('[^a-z0-9-_:]');
 const IGNORED_NODE = -2;
-function defaultMaskFn(str) {
-    return str ? str.replace(/[\S]/g, '*') : '';
-}
 function genId() {
     return _id++;
 }
@@ -13061,48 +13703,11 @@ function getValidTagName(element) {
     if (element instanceof HTMLFormElement) {
         return 'form';
     }
-    const processedTagName = element.tagName.toLowerCase().trim();
+    const processedTagName = toLowerCase(element.tagName);
     if (tagNameRegex.test(processedTagName)) {
         return 'div';
     }
     return processedTagName;
-}
-function getCssRulesString(s) {
-    try {
-        const rules = s.rules || s.cssRules;
-        return rules ? Array.from(rules).map(getCssRuleString).join('') : null;
-    }
-    catch (error) {
-        return null;
-    }
-}
-function getCssRuleString(rule) {
-    let cssStringified = rule.cssText;
-    if (isCSSImportRule(rule)) {
-        try {
-            cssStringified = getCssRulesString(rule.styleSheet) || cssStringified;
-        }
-        catch (_a) {
-        }
-    }
-    return validateStringifiedCssRule(cssStringified);
-}
-function validateStringifiedCssRule(cssStringified) {
-    if (cssStringified.indexOf(':') > -1) {
-        const regex = /(\[(?:[\w-]+)[^\\])(:(?:[\w-]+)\])/gm;
-        return cssStringified.replace(regex, '$1\\$2');
-    }
-    return cssStringified;
-}
-function isCSSImportRule(rule) {
-    return 'styleSheet' in rule;
-}
-function stringifyStyleSheet(sheet) {
-    return sheet.cssRules
-        ? Array.from(sheet.cssRules)
-            .map((rule) => rule.cssText ? validateStringifiedCssRule(rule.cssText) : '')
-            .join('')
-        : '';
 }
 function extractOrigin(url) {
     let origin = '';
@@ -13118,7 +13723,8 @@ function extractOrigin(url) {
 let canvasService;
 let canvasCtx;
 const URL_IN_CSS_REF = /url\((?:(')([^']*)'|(")(.*?)"|([^)]*))\)/gm;
-const RELATIVE_PATH = /^(?!www\.|(?:http|ftp)s?:\/\/|[A-Za-z]:\\|\/\/|#).*/;
+const URL_PROTOCOL_MATCH = /^(?:[a-z+]+:)?\/\//i;
+const URL_WWW_MATCH = /^www\..*/i;
 const DATA_URI = /^(data:)([^,]*),(.*)/i;
 function absoluteToStylesheet(cssText, href) {
     return (cssText || '').replace(URL_IN_CSS_REF, (origin, quote1, path1, quote2, path2, path3) => {
@@ -13127,7 +13733,7 @@ function absoluteToStylesheet(cssText, href) {
         if (!filePath) {
             return origin;
         }
-        if (!RELATIVE_PATH.test(filePath)) {
+        if (URL_PROTOCOL_MATCH.test(filePath) || URL_WWW_MATCH.test(filePath)) {
             return `url(${maybeQuote}${filePath}${maybeQuote})`;
         }
         if (DATA_URI.test(filePath)) {
@@ -13162,7 +13768,7 @@ function getAbsoluteSrcsetString(doc, attributeValue) {
     let pos = 0;
     function collectCharacters(regEx) {
         let chars;
-        let match = regEx.exec(attributeValue.substring(pos));
+        const match = regEx.exec(attributeValue.substring(pos));
         if (match) {
             chars = match[0];
             pos += chars.length;
@@ -13170,7 +13776,7 @@ function getAbsoluteSrcsetString(doc, attributeValue) {
         }
         return '';
     }
-    let output = [];
+    const output = [];
     while (true) {
         collectCharacters(SRCSET_COMMAS_OR_SPACES);
         if (pos >= attributeValue.length) {
@@ -13186,7 +13792,7 @@ function getAbsoluteSrcsetString(doc, attributeValue) {
             url = absoluteToDoc(doc, url);
             let inParens = false;
             while (true) {
-                let c = attributeValue.charAt(pos);
+                const c = attributeValue.charAt(pos);
                 if (c === '') {
                     output.push((url + descriptorsStr).trim());
                     break;
@@ -13229,13 +13835,12 @@ function getHref() {
     a.href = '';
     return a.href;
 }
-function transformAttribute(doc, element, _tagName, _name, value, maskAllText, unmaskTextSelector, maskTextFn) {
+function transformAttribute(doc, tagName, name, value, element, maskAttributeFn) {
     if (!value) {
         return value;
     }
-    const name = _name.toLowerCase();
-    const tagName = _tagName.toLowerCase();
-    if (name === 'src' || name === 'href') {
+    if (name === 'src' ||
+        (name === 'href' && !(tagName === 'use' && value[0] === '#'))) {
         return absoluteToDoc(doc, value);
     }
     else if (name === 'xlink:href' && value[0] !== '#') {
@@ -13254,79 +13859,113 @@ function transformAttribute(doc, element, _tagName, _name, value, maskAllText, u
     else if (tagName === 'object' && name === 'data') {
         return absoluteToDoc(doc, value);
     }
-    else if (maskAllText &&
-        _shouldMaskAttribute(element, name, tagName, unmaskTextSelector)) {
-        return maskTextFn ? maskTextFn(value) : defaultMaskFn(value);
+    if (typeof maskAttributeFn === 'function') {
+        return maskAttributeFn(name, value, element);
     }
     return value;
 }
-function _shouldMaskAttribute(element, attribute, tagName, unmaskTextSelector) {
-    if (unmaskTextSelector && element.matches(unmaskTextSelector)) {
-        return false;
-    }
-    return (['placeholder', 'title', 'aria-label'].indexOf(attribute) > -1 ||
-        (tagName === 'input' &&
-            attribute === 'value' &&
-            element.hasAttribute('type') &&
-            ['submit', 'button'].indexOf(element.getAttribute('type').toLowerCase()) > -1));
+function ignoreAttribute(tagName, name, _value) {
+    return (tagName === 'video' || tagName === 'audio') && name === 'autoplay';
 }
 function _isBlockedElement(element, blockClass, blockSelector, unblockSelector) {
-    if (unblockSelector && element.matches(unblockSelector)) {
-        return false;
-    }
-    if (typeof blockClass === 'string') {
-        if (element.classList.contains(blockClass)) {
-            return true;
+    try {
+        if (unblockSelector && element.matches(unblockSelector)) {
+            return false;
         }
-    }
-    else {
-        for (let eIndex = 0; eIndex < element.classList.length; eIndex++) {
-            const className = element.classList[eIndex];
-            if (blockClass.test(className)) {
+        if (typeof blockClass === 'string') {
+            if (element.classList.contains(blockClass)) {
                 return true;
             }
         }
+        else {
+            for (let eIndex = element.classList.length; eIndex--;) {
+                const className = element.classList[eIndex];
+                if (blockClass.test(className)) {
+                    return true;
+                }
+            }
+        }
+        if (blockSelector) {
+            return element.matches(blockSelector);
+        }
     }
-    if (blockSelector) {
-        return element.matches(blockSelector);
+    catch (e) {
     }
     return false;
 }
-function needMaskingText(node, maskTextClass, maskTextSelector, unmaskTextSelector, maskAllText) {
-    if (!node) {
-        return false;
-    }
-    if (node.nodeType !== node.ELEMENT_NODE) {
-        return needMaskingText(node.parentNode, maskTextClass, maskTextSelector, unmaskTextSelector, maskAllText);
-    }
-    if (unmaskTextSelector) {
-        if (node.matches(unmaskTextSelector) ||
-            node.closest(unmaskTextSelector)) {
-            return false;
-        }
-    }
-    if (maskAllText) {
-        return true;
-    }
-    if (typeof maskTextClass === 'string') {
-        if (node.classList.contains(maskTextClass)) {
+function elementClassMatchesRegex(el, regex) {
+    for (let eIndex = el.classList.length; eIndex--;) {
+        const className = el.classList[eIndex];
+        if (regex.test(className)) {
             return true;
         }
     }
-    else {
-        for (let eIndex = 0; eIndex < node.classList.length; eIndex++) {
-            const className = node.classList[eIndex];
-            if (maskTextClass.test(className)) {
+    return false;
+}
+function distanceToMatch(node, matchPredicate, limit = Infinity, distance = 0) {
+    if (!node)
+        return -1;
+    if (node.nodeType !== node.ELEMENT_NODE)
+        return -1;
+    if (distance > limit)
+        return -1;
+    if (matchPredicate(node))
+        return distance;
+    return distanceToMatch(node.parentNode, matchPredicate, limit, distance + 1);
+}
+function createMatchPredicate(className, selector) {
+    return (node) => {
+        const el = node;
+        if (el === null)
+            return false;
+        if (className) {
+            if (typeof className === 'string') {
+                if (el.matches(`.${className}`))
+                    return true;
+            }
+            else if (elementClassMatchesRegex(el, className)) {
                 return true;
             }
         }
-    }
-    if (maskTextSelector) {
-        if (node.matches(maskTextSelector)) {
+        if (selector && el.matches(selector))
             return true;
+        return false;
+    };
+}
+function needMaskingText(node, maskTextClass, maskTextSelector, unmaskTextClass, unmaskTextSelector, maskAllText) {
+    try {
+        const el = node.nodeType === node.ELEMENT_NODE
+            ? node
+            : node.parentElement;
+        if (el === null)
+            return false;
+        let maskDistance = -1;
+        let unmaskDistance = -1;
+        if (maskAllText) {
+            unmaskDistance = distanceToMatch(el, createMatchPredicate(unmaskTextClass, unmaskTextSelector));
+            if (unmaskDistance < 0) {
+                return true;
+            }
+            maskDistance = distanceToMatch(el, createMatchPredicate(maskTextClass, maskTextSelector), unmaskDistance >= 0 ? unmaskDistance : Infinity);
         }
+        else {
+            maskDistance = distanceToMatch(el, createMatchPredicate(maskTextClass, maskTextSelector));
+            if (maskDistance < 0) {
+                return false;
+            }
+            unmaskDistance = distanceToMatch(el, createMatchPredicate(unmaskTextClass, unmaskTextSelector), maskDistance >= 0 ? maskDistance : Infinity);
+        }
+        return maskDistance >= 0
+            ? unmaskDistance >= 0
+                ? maskDistance <= unmaskDistance
+                : true
+            : unmaskDistance >= 0
+                ? false
+                : !!maskAllText;
     }
-    return needMaskingText(node.parentNode, maskTextClass, maskTextSelector, unmaskTextSelector, maskAllText);
+    catch (e) {
+    }
+    return !!maskAllText;
 }
 function onceIframeLoaded(iframeEl, listener, iframeLoadTimeout) {
     const win = iframeEl.contentWindow;
@@ -13360,18 +13999,36 @@ function onceIframeLoaded(iframeEl, listener, iframeLoadTimeout) {
         iframeEl.src === blankUrl ||
         iframeEl.src === '') {
         setTimeout(listener, 0);
-        return;
+        return iframeEl.addEventListener('load', listener);
     }
     iframeEl.addEventListener('load', listener);
 }
-function serializeNode(n, options) {
-    var _a;
-    const { doc, blockClass, blockSelector, unblockSelector, maskTextClass, maskTextSelector, unmaskTextSelector, inlineStylesheet, maskInputSelector, unmaskInputSelector, maskAllText, maskInputOptions = {}, maskTextFn, maskInputFn, dataURLOptions = {}, inlineImages, recordCanvas, keepIframeSrcFn, } = options;
-    let rootId;
-    if (doc.__sn) {
-        const docId = doc.__sn.id;
-        rootId = docId === 1 ? undefined : docId;
+function onceStylesheetLoaded(link, listener, styleSheetLoadTimeout) {
+    let fired = false;
+    let styleSheetLoaded;
+    try {
+        styleSheetLoaded = link.sheet;
     }
+    catch (error) {
+        return;
+    }
+    if (styleSheetLoaded)
+        return;
+    const timer = setTimeout(() => {
+        if (!fired) {
+            listener();
+            fired = true;
+        }
+    }, styleSheetLoadTimeout);
+    link.addEventListener('load', () => {
+        clearTimeout(timer);
+        fired = true;
+        listener();
+    });
+}
+function serializeNode(n, options) {
+    const { doc, mirror, blockClass, blockSelector, unblockSelector, maskAllText, maskAttributeFn, maskTextClass, unmaskTextClass, maskTextSelector, unmaskTextSelector, inlineStylesheet, maskInputOptions = {}, maskTextFn, maskInputFn, dataURLOptions = {}, inlineImages, recordCanvas, keepIframeSrcFn, newlyAddedElement = false, } = options;
+    const rootId = getRootId(doc, mirror);
     switch (n.nodeType) {
         case n.DOCUMENT_NODE:
             if (n.compatMode !== 'CSS1Compat') {
@@ -13379,14 +14036,12 @@ function serializeNode(n, options) {
                     type: NodeType$1.Document,
                     childNodes: [],
                     compatMode: n.compatMode,
-                    rootId,
                 };
             }
             else {
                 return {
                     type: NodeType$1.Document,
                     childNodes: [],
-                    rootId,
                 };
             }
         case n.DOCUMENT_TYPE_NODE:
@@ -13398,202 +14053,39 @@ function serializeNode(n, options) {
                 rootId,
             };
         case n.ELEMENT_NODE:
-            const needBlock = _isBlockedElement(n, blockClass, blockSelector, unblockSelector);
-            const tagName = getValidTagName(n);
-            let attributes = {};
-            for (const { name, value } of Array.from(n.attributes)) {
-                if (!skipAttribute(tagName, name)) {
-                    attributes[name] = transformAttribute(doc, n, tagName, name, value, maskAllText, unmaskTextSelector, maskTextFn);
-                }
-            }
-            if (tagName === 'link' && inlineStylesheet) {
-                const stylesheet = Array.from(doc.styleSheets).find((s) => {
-                    return s.href === n.href;
-                });
-                let cssText = null;
-                if (stylesheet) {
-                    cssText = getCssRulesString(stylesheet);
-                }
-                if (cssText) {
-                    delete attributes.rel;
-                    delete attributes.href;
-                    attributes._cssText = absoluteToStylesheet(cssText, stylesheet.href);
-                }
-            }
-            if (tagName === 'style' &&
-                n.sheet &&
-                !(n.innerText ||
-                    n.textContent ||
-                    '').trim().length) {
-                const cssText = getCssRulesString(n.sheet);
-                if (cssText) {
-                    attributes._cssText = absoluteToStylesheet(cssText, getHref());
-                }
-            }
-            if (tagName === 'input' ||
-                tagName === 'textarea' ||
-                tagName === 'select' ||
-                tagName === 'option') {
-                const el = n;
-                const type = getInputType(el);
-                const value = getInputValue(el, tagName.toUpperCase(), type);
-                const checked = n.checked;
-                if (type !== 'submit' &&
-                    type !== 'button' &&
-                    value) {
-                    attributes.value = maskInputValue({
-                        input: el,
-                        type,
-                        tagName,
-                        value,
-                        maskInputSelector,
-                        unmaskInputSelector,
-                        maskInputOptions,
-                        maskInputFn,
-                    });
-                }
-                if (checked) {
-                    attributes.checked = checked;
-                }
-            }
-            if (tagName === 'option') {
-                if (n.selected && !maskInputOptions['select']) {
-                    attributes.selected = true;
-                }
-                else {
-                    delete attributes.selected;
-                }
-            }
-            if (tagName === 'canvas' && recordCanvas) {
-                if (n.__context === '2d') {
-                    if (!is2DCanvasBlank(n)) {
-                        attributes.rr_dataURL = n.toDataURL(dataURLOptions.type, dataURLOptions.quality);
-                    }
-                }
-                else if (!('__context' in n)) {
-                    const canvasDataURL = n.toDataURL(dataURLOptions.type, dataURLOptions.quality);
-                    const blankCanvas = document.createElement('canvas');
-                    blankCanvas.width = n.width;
-                    blankCanvas.height = n.height;
-                    const blankCanvasDataURL = blankCanvas.toDataURL(dataURLOptions.type, dataURLOptions.quality);
-                    if (canvasDataURL !== blankCanvasDataURL) {
-                        attributes.rr_dataURL = canvasDataURL;
-                    }
-                }
-            }
-            if (tagName === 'img' && inlineImages) {
-                if (!canvasService) {
-                    canvasService = doc.createElement('canvas');
-                    canvasCtx = canvasService.getContext('2d');
-                }
-                const image = n;
-                const oldValue = image.crossOrigin;
-                image.crossOrigin = 'anonymous';
-                const recordInlineImage = () => {
-                    try {
-                        canvasService.width = image.naturalWidth;
-                        canvasService.height = image.naturalHeight;
-                        canvasCtx.drawImage(image, 0, 0);
-                        attributes.rr_dataURL = canvasService.toDataURL(dataURLOptions.type, dataURLOptions.quality);
-                    }
-                    catch (err) {
-                        console.warn(`Cannot inline img src=${image.currentSrc}! Error: ${err}`);
-                    }
-                    oldValue
-                        ? (attributes.crossOrigin = oldValue)
-                        : delete attributes.crossOrigin;
-                };
-                if (image.complete && image.naturalWidth !== 0)
-                    recordInlineImage();
-                else
-                    image.onload = recordInlineImage;
-            }
-            if (tagName === 'audio' || tagName === 'video') {
-                attributes.rr_mediaState = n.paused
-                    ? 'paused'
-                    : 'played';
-                attributes.rr_mediaCurrentTime = n.currentTime;
-            }
-            if (n.scrollLeft) {
-                attributes.rr_scrollLeft = n.scrollLeft;
-            }
-            if (n.scrollTop) {
-                attributes.rr_scrollTop = n.scrollTop;
-            }
-            if (needBlock) {
-                const { width, height } = n.getBoundingClientRect();
-                attributes = {
-                    class: attributes.class,
-                    rr_width: `${width}px`,
-                    rr_height: `${height}px`,
-                };
-            }
-            if (tagName === 'iframe' && !keepIframeSrcFn(attributes.src)) {
-                if (!n.contentDocument) {
-                    attributes.rr_src = attributes.src;
-                }
-                delete attributes.src;
-            }
-            return {
-                type: NodeType$1.Element,
-                tagName,
-                attributes,
-                childNodes: [],
-                isSVG: isSVGElement(n) || undefined,
-                needBlock,
+            return serializeElementNode(n, {
+                doc,
+                blockClass,
+                blockSelector,
+                unblockSelector,
+                inlineStylesheet,
+                maskAttributeFn,
+                maskInputOptions,
+                maskInputFn,
+                dataURLOptions,
+                inlineImages,
+                recordCanvas,
+                keepIframeSrcFn,
+                newlyAddedElement,
                 rootId,
-            };
+                maskAllText,
+                maskTextClass,
+                unmaskTextClass,
+                maskTextSelector,
+                unmaskTextSelector,
+            });
         case n.TEXT_NODE:
-            const parentTagName = n.parentNode && n.parentNode.tagName;
-            let textContent = n.textContent;
-            const isStyle = parentTagName === 'STYLE' ? true : undefined;
-            const isScript = parentTagName === 'SCRIPT' ? true : undefined;
-            if (isStyle && textContent) {
-                try {
-                    if (n.nextSibling || n.previousSibling) {
-                    }
-                    else if ((_a = n.parentNode.sheet) === null || _a === void 0 ? void 0 : _a.cssRules) {
-                        textContent = stringifyStyleSheet(n.parentNode.sheet);
-                    }
-                }
-                catch (err) {
-                    console.warn(`Cannot get CSS styles from text's parentNode. Error: ${err}`, n);
-                }
-                textContent = absoluteToStylesheet(textContent, getHref());
-            }
-            if (isScript) {
-                textContent = 'SCRIPT_PLACEHOLDER';
-            }
-            if (parentTagName === 'TEXTAREA' && textContent) {
-                textContent = '';
-            }
-            else if (parentTagName === 'OPTION' && textContent) {
-                const option = n.parentNode;
-                textContent = maskInputValue({
-                    input: option,
-                    type: null,
-                    tagName: parentTagName,
-                    value: textContent,
-                    maskInputSelector,
-                    unmaskInputSelector,
-                    maskInputOptions,
-                    maskInputFn,
-                });
-            }
-            else if (!isStyle &&
-                !isScript &&
-                needMaskingText(n, maskTextClass, maskTextSelector, unmaskTextSelector, maskAllText) &&
-                textContent) {
-                textContent = maskTextFn
-                    ? maskTextFn(textContent)
-                    : defaultMaskFn(textContent);
-            }
-            return {
-                type: NodeType$1.Text,
-                textContent: textContent || '',
-                isStyle,
+            return serializeTextNode(n, {
+                maskAllText,
+                maskTextClass,
+                unmaskTextClass,
+                maskTextSelector,
+                unmaskTextSelector,
+                maskTextFn,
+                maskInputOptions,
+                maskInputFn,
                 rootId,
-            };
+            });
         case n.CDATA_SECTION_NODE:
             return {
                 type: NodeType$1.CDATA,
@@ -13609,6 +14101,225 @@ function serializeNode(n, options) {
         default:
             return false;
     }
+}
+function getRootId(doc, mirror) {
+    if (!mirror.hasNode(doc))
+        return undefined;
+    const docId = mirror.getId(doc);
+    return docId === 1 ? undefined : docId;
+}
+function serializeTextNode(n, options) {
+    var _a;
+    const { maskAllText, maskTextClass, unmaskTextClass, maskTextSelector, unmaskTextSelector, maskTextFn, maskInputOptions, maskInputFn, rootId, } = options;
+    const parentTagName = n.parentNode && n.parentNode.tagName;
+    let textContent = n.textContent;
+    const isStyle = parentTagName === 'STYLE' ? true : undefined;
+    const isScript = parentTagName === 'SCRIPT' ? true : undefined;
+    const isTextarea = parentTagName === 'TEXTAREA' ? true : undefined;
+    if (isStyle && textContent) {
+        try {
+            if (n.nextSibling || n.previousSibling) {
+            }
+            else if ((_a = n.parentNode.sheet) === null || _a === void 0 ? void 0 : _a.cssRules) {
+                textContent = stringifyStylesheet(n.parentNode.sheet);
+            }
+        }
+        catch (err) {
+            console.warn(`Cannot get CSS styles from text's parentNode. Error: ${err}`, n);
+        }
+        textContent = absoluteToStylesheet(textContent, getHref());
+    }
+    if (isScript) {
+        textContent = 'SCRIPT_PLACEHOLDER';
+    }
+    const forceMask = needMaskingText(n, maskTextClass, maskTextSelector, unmaskTextClass, unmaskTextSelector, maskAllText);
+    if (!isStyle && !isScript && !isTextarea && textContent && forceMask) {
+        textContent = maskTextFn
+            ? maskTextFn(textContent)
+            : textContent.replace(/[\S]/g, '*');
+    }
+    if (isTextarea && textContent && (maskInputOptions.textarea || forceMask)) {
+        textContent = maskInputFn
+            ? maskInputFn(textContent, n.parentNode)
+            : textContent.replace(/[\S]/g, '*');
+    }
+    if (parentTagName === 'OPTION' && textContent) {
+        const isInputMasked = shouldMaskInput({
+            type: null,
+            tagName: parentTagName,
+            maskInputOptions,
+        });
+        textContent = maskInputValue({
+            isMasked: needMaskingText(n, maskTextClass, maskTextSelector, unmaskTextClass, unmaskTextSelector, isInputMasked),
+            element: n,
+            value: textContent,
+            maskInputFn,
+        });
+    }
+    return {
+        type: NodeType$1.Text,
+        textContent: textContent || '',
+        isStyle,
+        rootId,
+    };
+}
+function serializeElementNode(n, options) {
+    const { doc, blockClass, blockSelector, unblockSelector, inlineStylesheet, maskInputOptions = {}, maskAttributeFn, maskInputFn, dataURLOptions = {}, inlineImages, recordCanvas, keepIframeSrcFn, newlyAddedElement = false, rootId, maskAllText, maskTextClass, unmaskTextClass, maskTextSelector, unmaskTextSelector, } = options;
+    const needBlock = _isBlockedElement(n, blockClass, blockSelector, unblockSelector);
+    const tagName = getValidTagName(n);
+    let attributes = {};
+    const len = n.attributes.length;
+    for (let i = 0; i < len; i++) {
+        const attr = n.attributes[i];
+        if (!ignoreAttribute(tagName, attr.name, attr.value)) {
+            attributes[attr.name] = transformAttribute(doc, tagName, toLowerCase(attr.name), attr.value, n, maskAttributeFn);
+        }
+    }
+    if (tagName === 'link' && inlineStylesheet) {
+        const stylesheet = Array.from(doc.styleSheets).find((s) => {
+            return s.href === n.href;
+        });
+        let cssText = null;
+        if (stylesheet) {
+            cssText = stringifyStylesheet(stylesheet);
+        }
+        if (cssText) {
+            delete attributes.rel;
+            delete attributes.href;
+            attributes._cssText = absoluteToStylesheet(cssText, stylesheet.href);
+        }
+    }
+    if (tagName === 'style' &&
+        n.sheet &&
+        !(n.innerText || n.textContent || '').trim().length) {
+        const cssText = stringifyStylesheet(n.sheet);
+        if (cssText) {
+            attributes._cssText = absoluteToStylesheet(cssText, getHref());
+        }
+    }
+    if (tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        tagName === 'option') {
+        const el = n;
+        const type = getInputType(el);
+        const value = getInputValue(el, toUpperCase(tagName), type);
+        const checked = el.checked;
+        if (type !== 'submit' && type !== 'button' && value) {
+            const forceMask = needMaskingText(el, maskTextClass, maskTextSelector, unmaskTextClass, unmaskTextSelector, shouldMaskInput({
+                type,
+                tagName: toUpperCase(tagName),
+                maskInputOptions,
+            }));
+            attributes.value = maskInputValue({
+                isMasked: forceMask,
+                element: el,
+                value,
+                maskInputFn,
+            });
+        }
+        if (checked) {
+            attributes.checked = checked;
+        }
+    }
+    if (tagName === 'option') {
+        if (n.selected && !maskInputOptions['select']) {
+            attributes.selected = true;
+        }
+        else {
+            delete attributes.selected;
+        }
+    }
+    if (tagName === 'canvas' && recordCanvas) {
+        if (n.__context === '2d') {
+            if (!is2DCanvasBlank(n)) {
+                attributes.rr_dataURL = n.toDataURL(dataURLOptions.type, dataURLOptions.quality);
+            }
+        }
+        else if (!('__context' in n)) {
+            const canvasDataURL = n.toDataURL(dataURLOptions.type, dataURLOptions.quality);
+            const blankCanvas = document.createElement('canvas');
+            blankCanvas.width = n.width;
+            blankCanvas.height = n.height;
+            const blankCanvasDataURL = blankCanvas.toDataURL(dataURLOptions.type, dataURLOptions.quality);
+            if (canvasDataURL !== blankCanvasDataURL) {
+                attributes.rr_dataURL = canvasDataURL;
+            }
+        }
+    }
+    if (tagName === 'img' && inlineImages) {
+        if (!canvasService) {
+            canvasService = doc.createElement('canvas');
+            canvasCtx = canvasService.getContext('2d');
+        }
+        const image = n;
+        const oldValue = image.crossOrigin;
+        image.crossOrigin = 'anonymous';
+        const recordInlineImage = () => {
+            image.removeEventListener('load', recordInlineImage);
+            try {
+                canvasService.width = image.naturalWidth;
+                canvasService.height = image.naturalHeight;
+                canvasCtx.drawImage(image, 0, 0);
+                attributes.rr_dataURL = canvasService.toDataURL(dataURLOptions.type, dataURLOptions.quality);
+            }
+            catch (err) {
+                console.warn(`Cannot inline img src=${image.currentSrc}! Error: ${err}`);
+            }
+            oldValue
+                ? (attributes.crossOrigin = oldValue)
+                : image.removeAttribute('crossorigin');
+        };
+        if (image.complete && image.naturalWidth !== 0)
+            recordInlineImage();
+        else
+            image.addEventListener('load', recordInlineImage);
+    }
+    if (tagName === 'audio' || tagName === 'video') {
+        attributes.rr_mediaState = n.paused
+            ? 'paused'
+            : 'played';
+        attributes.rr_mediaCurrentTime = n.currentTime;
+    }
+    if (!newlyAddedElement) {
+        if (n.scrollLeft) {
+            attributes.rr_scrollLeft = n.scrollLeft;
+        }
+        if (n.scrollTop) {
+            attributes.rr_scrollTop = n.scrollTop;
+        }
+    }
+    if (needBlock) {
+        const { width, height } = n.getBoundingClientRect();
+        attributes = {
+            class: attributes.class,
+            rr_width: `${width}px`,
+            rr_height: `${height}px`,
+        };
+    }
+    if (tagName === 'iframe' && !keepIframeSrcFn(attributes.src)) {
+        if (!n.contentDocument) {
+            attributes.rr_src = attributes.src;
+        }
+        delete attributes.src;
+    }
+    let isCustomElement;
+    try {
+        if (customElements.get(tagName))
+            isCustomElement = true;
+    }
+    catch (e) {
+    }
+    return {
+        type: NodeType$1.Element,
+        tagName,
+        attributes,
+        childNodes: [],
+        isSVG: isSVGElement(n) || undefined,
+        needBlock,
+        rootId,
+        isCustom: isCustomElement,
+    };
 }
 function lowerIfExists(maybeAttr) {
     if (maybeAttr === undefined || maybeAttr === null) {
@@ -13691,35 +14402,37 @@ function slimDOMExcluded(sn, slimDOMOptions) {
     return false;
 }
 function serializeNodeWithId(n, options) {
-    const { doc, map, blockClass, blockSelector, unblockSelector, maskTextClass, maskTextSelector, unmaskTextSelector, skipChild = false, inlineStylesheet = true, maskInputSelector, unmaskInputSelector, maskAllText, maskInputOptions = {}, maskTextFn, maskInputFn, slimDOMOptions, dataURLOptions = {}, inlineImages = false, recordCanvas = false, onSerialize, onIframeLoad, iframeLoadTimeout = 5000, keepIframeSrcFn = () => false, } = options;
+    const { doc, mirror, blockClass, blockSelector, unblockSelector, maskAllText, maskTextClass, unmaskTextClass, maskTextSelector, unmaskTextSelector, skipChild = false, inlineStylesheet = true, maskInputOptions = {}, maskAttributeFn, maskTextFn, maskInputFn, slimDOMOptions, dataURLOptions = {}, inlineImages = false, recordCanvas = false, onSerialize, onIframeLoad, iframeLoadTimeout = 5000, onStylesheetLoad, stylesheetLoadTimeout = 5000, keepIframeSrcFn = () => false, newlyAddedElement = false, } = options;
     let { preserveWhiteSpace = true } = options;
     const _serializedNode = serializeNode(n, {
         doc,
+        mirror,
         blockClass,
         blockSelector,
+        maskAllText,
         unblockSelector,
         maskTextClass,
+        unmaskTextClass,
         maskTextSelector,
         unmaskTextSelector,
         inlineStylesheet,
-        maskInputSelector,
-        unmaskInputSelector,
-        maskAllText,
         maskInputOptions,
+        maskAttributeFn,
         maskTextFn,
         maskInputFn,
         dataURLOptions,
         inlineImages,
         recordCanvas,
         keepIframeSrcFn,
+        newlyAddedElement,
     });
     if (!_serializedNode) {
         console.warn(n, 'not serialized');
         return null;
     }
     let id;
-    if ('__sn' in n) {
-        id = n.__sn.id;
+    if (mirror.hasNode(n)) {
+        id = mirror.getId(n);
     }
     else if (slimDOMExcluded(_serializedNode, slimDOMOptions) ||
         (!preserveWhiteSpace &&
@@ -13732,11 +14445,10 @@ function serializeNodeWithId(n, options) {
         id = genId();
     }
     const serializedNode = Object.assign(_serializedNode, { id });
-    n.__sn = serializedNode;
+    mirror.add(n, serializedNode);
     if (id === IGNORED_NODE) {
         return null;
     }
-    map[id] = n;
     if (onSerialize) {
         onSerialize(n);
     }
@@ -13744,32 +14456,33 @@ function serializeNodeWithId(n, options) {
     if (serializedNode.type === NodeType$1.Element) {
         recordChild = recordChild && !serializedNode.needBlock;
         delete serializedNode.needBlock;
-        if (n.shadowRoot)
+        const shadowRoot = n.shadowRoot;
+        if (shadowRoot && isNativeShadowDom(shadowRoot))
             serializedNode.isShadowHost = true;
     }
     if ((serializedNode.type === NodeType$1.Document ||
         serializedNode.type === NodeType$1.Element) &&
         recordChild) {
         if (slimDOMOptions.headWhitespace &&
-            _serializedNode.type === NodeType$1.Element &&
-            _serializedNode.tagName === 'head') {
+            serializedNode.type === NodeType$1.Element &&
+            serializedNode.tagName === 'head') {
             preserveWhiteSpace = false;
         }
         const bypassOptions = {
             doc,
-            map,
+            mirror,
             blockClass,
             blockSelector,
+            maskAllText,
             unblockSelector,
             maskTextClass,
+            unmaskTextClass,
             maskTextSelector,
             unmaskTextSelector,
             skipChild,
             inlineStylesheet,
-            maskInputSelector,
-            unmaskInputSelector,
-            maskAllText,
             maskInputOptions,
+            maskAttributeFn,
             maskTextFn,
             maskInputFn,
             slimDOMOptions,
@@ -13780,6 +14493,8 @@ function serializeNodeWithId(n, options) {
             onSerialize,
             onIframeLoad,
             iframeLoadTimeout,
+            onStylesheetLoad,
+            stylesheetLoadTimeout,
             keepIframeSrcFn,
         };
         for (const childN of Array.from(n.childNodes)) {
@@ -13788,17 +14503,20 @@ function serializeNodeWithId(n, options) {
                 serializedNode.childNodes.push(serializedChildNode);
             }
         }
-        if (isElement(n) && n.shadowRoot) {
+        if (isElement$1(n) && n.shadowRoot) {
             for (const childN of Array.from(n.shadowRoot.childNodes)) {
                 const serializedChildNode = serializeNodeWithId(childN, bypassOptions);
                 if (serializedChildNode) {
-                    serializedChildNode.isShadow = true;
+                    isNativeShadowDom(n.shadowRoot) &&
+                        (serializedChildNode.isShadow = true);
                     serializedNode.childNodes.push(serializedChildNode);
                 }
             }
         }
     }
-    if (n.parentNode && isShadowRoot(n.parentNode)) {
+    if (n.parentNode &&
+        isShadowRoot(n.parentNode) &&
+        isNativeShadowDom(n.parentNode)) {
         serializedNode.isShadow = true;
     }
     if (serializedNode.type === NodeType$1.Element &&
@@ -13808,19 +14526,19 @@ function serializeNodeWithId(n, options) {
             if (iframeDoc && onIframeLoad) {
                 const serializedIframeNode = serializeNodeWithId(iframeDoc, {
                     doc: iframeDoc,
-                    map,
+                    mirror,
                     blockClass,
                     blockSelector,
                     unblockSelector,
+                    maskAllText,
                     maskTextClass,
+                    unmaskTextClass,
                     maskTextSelector,
                     unmaskTextSelector,
                     skipChild: false,
                     inlineStylesheet,
-                    maskInputSelector,
-                    unmaskInputSelector,
-                    maskAllText,
                     maskInputOptions,
+                    maskAttributeFn,
                     maskTextFn,
                     maskInputFn,
                     slimDOMOptions,
@@ -13831,6 +14549,8 @@ function serializeNodeWithId(n, options) {
                     onSerialize,
                     onIframeLoad,
                     iframeLoadTimeout,
+                    onStylesheetLoad,
+                    stylesheetLoadTimeout,
                     keepIframeSrcFn,
                 });
                 if (serializedIframeNode) {
@@ -13839,11 +14559,50 @@ function serializeNodeWithId(n, options) {
             }
         }, iframeLoadTimeout);
     }
+    if (serializedNode.type === NodeType$1.Element &&
+        serializedNode.tagName === 'link' &&
+        serializedNode.attributes.rel === 'stylesheet') {
+        onceStylesheetLoaded(n, () => {
+            if (onStylesheetLoad) {
+                const serializedLinkNode = serializeNodeWithId(n, {
+                    doc,
+                    mirror,
+                    blockClass,
+                    blockSelector,
+                    unblockSelector,
+                    maskAllText,
+                    maskTextClass,
+                    unmaskTextClass,
+                    maskTextSelector,
+                    unmaskTextSelector,
+                    skipChild: false,
+                    inlineStylesheet,
+                    maskInputOptions,
+                    maskAttributeFn,
+                    maskTextFn,
+                    maskInputFn,
+                    slimDOMOptions,
+                    dataURLOptions,
+                    inlineImages,
+                    recordCanvas,
+                    preserveWhiteSpace,
+                    onSerialize,
+                    onIframeLoad,
+                    iframeLoadTimeout,
+                    onStylesheetLoad,
+                    stylesheetLoadTimeout,
+                    keepIframeSrcFn,
+                });
+                if (serializedLinkNode) {
+                    onStylesheetLoad(n, serializedLinkNode);
+                }
+            }
+        }, stylesheetLoadTimeout);
+    }
     return serializedNode;
 }
 function snapshot(n, options) {
-    const { blockClass = 'rr-block', blockSelector = null, unblockSelector = null, maskTextClass = 'rr-mask', maskTextSelector = null, unmaskTextSelector = null, inlineStylesheet = true, inlineImages = false, recordCanvas = false, maskInputSelector = null, unmaskInputSelector = null, maskAllText = false, maskAllInputs = false, maskTextFn, maskInputFn, slimDOM = false, dataURLOptions, preserveWhiteSpace, onSerialize, onIframeLoad, iframeLoadTimeout, keepIframeSrcFn = () => false, } = options || {};
-    const idNodeMap = {};
+    const { mirror = new Mirror(), blockClass = 'rr-block', blockSelector = null, unblockSelector = null, maskAllText = false, maskTextClass = 'rr-mask', unmaskTextClass = null, maskTextSelector = null, unmaskTextSelector = null, inlineStylesheet = true, inlineImages = false, recordCanvas = false, maskAllInputs = false, maskAttributeFn, maskTextFn, maskInputFn, slimDOM = false, dataURLOptions, preserveWhiteSpace, onSerialize, onIframeLoad, iframeLoadTimeout, onStylesheetLoad, stylesheetLoadTimeout, keepIframeSrcFn = () => false, } = options || {};
     const maskInputOptions = maskAllInputs === true
         ? {
             color: true,
@@ -13882,146 +14641,42 @@ function snapshot(n, options) {
         : slimDOM === false
             ? {}
             : slimDOM;
-    return [
-        serializeNodeWithId(n, {
-            doc: n,
-            map: idNodeMap,
-            blockClass,
-            blockSelector,
-            unblockSelector,
-            maskTextClass,
-            maskTextSelector,
-            unmaskTextSelector,
-            skipChild: false,
-            inlineStylesheet,
-            maskInputSelector,
-            unmaskInputSelector,
-            maskAllText,
-            maskInputOptions,
-            maskTextFn,
-            maskInputFn,
-            slimDOMOptions,
-            dataURLOptions,
-            inlineImages,
-            recordCanvas,
-            preserveWhiteSpace,
-            onSerialize,
-            onIframeLoad,
-            iframeLoadTimeout,
-            keepIframeSrcFn,
-        }),
-        idNodeMap,
-    ];
+    return serializeNodeWithId(n, {
+        doc: n,
+        mirror,
+        blockClass,
+        blockSelector,
+        unblockSelector,
+        maskAllText,
+        maskTextClass,
+        unmaskTextClass,
+        maskTextSelector,
+        unmaskTextSelector,
+        skipChild: false,
+        inlineStylesheet,
+        maskInputOptions,
+        maskAttributeFn,
+        maskTextFn,
+        maskInputFn,
+        slimDOMOptions,
+        dataURLOptions,
+        inlineImages,
+        recordCanvas,
+        preserveWhiteSpace,
+        onSerialize,
+        onIframeLoad,
+        iframeLoadTimeout,
+        onStylesheetLoad,
+        stylesheetLoadTimeout,
+        keepIframeSrcFn,
+        newlyAddedElement: false,
+    });
 }
-function skipAttribute(tagName, attributeName, value) {
-    return ((tagName === 'video' || tagName === 'audio') && attributeName === 'autoplay');
-}
-
-var EventType;
-(function (EventType) {
-    EventType[EventType["DomContentLoaded"] = 0] = "DomContentLoaded";
-    EventType[EventType["Load"] = 1] = "Load";
-    EventType[EventType["FullSnapshot"] = 2] = "FullSnapshot";
-    EventType[EventType["IncrementalSnapshot"] = 3] = "IncrementalSnapshot";
-    EventType[EventType["Meta"] = 4] = "Meta";
-    EventType[EventType["Custom"] = 5] = "Custom";
-    EventType[EventType["Plugin"] = 6] = "Plugin";
-})(EventType || (EventType = {}));
-var IncrementalSource;
-(function (IncrementalSource) {
-    IncrementalSource[IncrementalSource["Mutation"] = 0] = "Mutation";
-    IncrementalSource[IncrementalSource["MouseMove"] = 1] = "MouseMove";
-    IncrementalSource[IncrementalSource["MouseInteraction"] = 2] = "MouseInteraction";
-    IncrementalSource[IncrementalSource["Scroll"] = 3] = "Scroll";
-    IncrementalSource[IncrementalSource["ViewportResize"] = 4] = "ViewportResize";
-    IncrementalSource[IncrementalSource["Input"] = 5] = "Input";
-    IncrementalSource[IncrementalSource["TouchMove"] = 6] = "TouchMove";
-    IncrementalSource[IncrementalSource["MediaInteraction"] = 7] = "MediaInteraction";
-    IncrementalSource[IncrementalSource["StyleSheetRule"] = 8] = "StyleSheetRule";
-    IncrementalSource[IncrementalSource["CanvasMutation"] = 9] = "CanvasMutation";
-    IncrementalSource[IncrementalSource["Font"] = 10] = "Font";
-    IncrementalSource[IncrementalSource["Log"] = 11] = "Log";
-    IncrementalSource[IncrementalSource["Drag"] = 12] = "Drag";
-    IncrementalSource[IncrementalSource["StyleDeclaration"] = 13] = "StyleDeclaration";
-})(IncrementalSource || (IncrementalSource = {}));
-var MouseInteractions;
-(function (MouseInteractions) {
-    MouseInteractions[MouseInteractions["MouseUp"] = 0] = "MouseUp";
-    MouseInteractions[MouseInteractions["MouseDown"] = 1] = "MouseDown";
-    MouseInteractions[MouseInteractions["Click"] = 2] = "Click";
-    MouseInteractions[MouseInteractions["ContextMenu"] = 3] = "ContextMenu";
-    MouseInteractions[MouseInteractions["DblClick"] = 4] = "DblClick";
-    MouseInteractions[MouseInteractions["Focus"] = 5] = "Focus";
-    MouseInteractions[MouseInteractions["Blur"] = 6] = "Blur";
-    MouseInteractions[MouseInteractions["TouchStart"] = 7] = "TouchStart";
-    MouseInteractions[MouseInteractions["TouchMove_Departed"] = 8] = "TouchMove_Departed";
-    MouseInteractions[MouseInteractions["TouchEnd"] = 9] = "TouchEnd";
-    MouseInteractions[MouseInteractions["TouchCancel"] = 10] = "TouchCancel";
-})(MouseInteractions || (MouseInteractions = {}));
-var CanvasContext;
-(function (CanvasContext) {
-    CanvasContext[CanvasContext["2D"] = 0] = "2D";
-    CanvasContext[CanvasContext["WebGL"] = 1] = "WebGL";
-    CanvasContext[CanvasContext["WebGL2"] = 2] = "WebGL2";
-})(CanvasContext || (CanvasContext = {}));
-var MediaInteractions;
-(function (MediaInteractions) {
-    MediaInteractions[MediaInteractions["Play"] = 0] = "Play";
-    MediaInteractions[MediaInteractions["Pause"] = 1] = "Pause";
-    MediaInteractions[MediaInteractions["Seeked"] = 2] = "Seeked";
-    MediaInteractions[MediaInteractions["VolumeChange"] = 3] = "VolumeChange";
-})(MediaInteractions || (MediaInteractions = {}));
-var ReplayerEvents;
-(function (ReplayerEvents) {
-    ReplayerEvents["Start"] = "start";
-    ReplayerEvents["Pause"] = "pause";
-    ReplayerEvents["Resume"] = "resume";
-    ReplayerEvents["Resize"] = "resize";
-    ReplayerEvents["Finish"] = "finish";
-    ReplayerEvents["FullsnapshotRebuilded"] = "fullsnapshot-rebuilded";
-    ReplayerEvents["LoadStylesheetStart"] = "load-stylesheet-start";
-    ReplayerEvents["LoadStylesheetEnd"] = "load-stylesheet-end";
-    ReplayerEvents["SkipStart"] = "skip-start";
-    ReplayerEvents["SkipEnd"] = "skip-end";
-    ReplayerEvents["MouseInteraction"] = "mouse-interaction";
-    ReplayerEvents["EventCast"] = "event-cast";
-    ReplayerEvents["CustomEvent"] = "custom-event";
-    ReplayerEvents["Flush"] = "flush";
-    ReplayerEvents["StateChange"] = "state-change";
-    ReplayerEvents["PlayBack"] = "play-back";
-})(ReplayerEvents || (ReplayerEvents = {}));
 
 function on(type, fn, target = document) {
     const options = { capture: true, passive: true };
     target.addEventListener(type, fn, options);
     return () => target.removeEventListener(type, fn, options);
-}
-function createMirror() {
-    return {
-        map: {},
-        getId(n) {
-            if (!n || !n.__sn) {
-                return -1;
-            }
-            return n.__sn.id;
-        },
-        getNode(id) {
-            return this.map[id] || null;
-        },
-        removeNodeFromMap(n) {
-            const id = n.__sn && n.__sn.id;
-            delete this.map[id];
-            if (n.childNodes) {
-                n.childNodes.forEach((child) => this.removeNodeFromMap(child));
-            }
-        },
-        has(id) {
-            return this.map.hasOwnProperty(id);
-        },
-        reset() {
-            this.map = {};
-        },
-    };
 }
 const DEPARTED_MIRROR_ACCESS_WARNING = 'Please stop import mirror directly. Instead of that,' +
     '\r\n' +
@@ -14062,14 +14717,13 @@ if (typeof window !== 'undefined' && window.Proxy && window.Reflect) {
 function throttle$1(func, wait, options = {}) {
     let timeout = null;
     let previous = 0;
-    return function (arg) {
-        let now = Date.now();
+    return function (...args) {
+        const now = Date.now();
         if (!previous && options.leading === false) {
             previous = now;
         }
-        let remaining = wait - (now - previous);
-        let context = this;
-        let args = arguments;
+        const remaining = wait - (now - previous);
+        const context = this;
         if (remaining <= 0 || remaining > wait) {
             if (timeout) {
                 clearTimeout(timeout);
@@ -14106,7 +14760,8 @@ function hookSetter(target, key, d, isRevoked, win = window) {
 function patch(source, name, replacement) {
     try {
         if (!(name in source)) {
-            return () => { };
+            return () => {
+            };
         }
         const original = source[name];
         const wrapped = replacement(original);
@@ -14125,8 +14780,35 @@ function patch(source, name, replacement) {
         };
     }
     catch (_a) {
-        return () => { };
+        return () => {
+        };
     }
+}
+let nowTimestamp = Date.now;
+if (!(/[1-9][0-9]{12}/.test(Date.now().toString()))) {
+    nowTimestamp = () => new Date().getTime();
+}
+function getWindowScroll(win) {
+    var _a, _b, _c, _d, _e, _f;
+    const doc = win.document;
+    return {
+        left: doc.scrollingElement
+            ? doc.scrollingElement.scrollLeft
+            : win.pageXOffset !== undefined
+                ? win.pageXOffset
+                : (doc === null || doc === void 0 ? void 0 : doc.documentElement.scrollLeft) ||
+                    ((_b = (_a = doc === null || doc === void 0 ? void 0 : doc.body) === null || _a === void 0 ? void 0 : _a.parentElement) === null || _b === void 0 ? void 0 : _b.scrollLeft) ||
+                    ((_c = doc === null || doc === void 0 ? void 0 : doc.body) === null || _c === void 0 ? void 0 : _c.scrollLeft) ||
+                    0,
+        top: doc.scrollingElement
+            ? doc.scrollingElement.scrollTop
+            : win.pageYOffset !== undefined
+                ? win.pageYOffset
+                : (doc === null || doc === void 0 ? void 0 : doc.documentElement.scrollTop) ||
+                    ((_e = (_d = doc === null || doc === void 0 ? void 0 : doc.body) === null || _d === void 0 ? void 0 : _d.parentElement) === null || _e === void 0 ? void 0 : _e.scrollTop) ||
+                    ((_f = doc === null || doc === void 0 ? void 0 : doc.body) === null || _f === void 0 ? void 0 : _f.scrollTop) ||
+                    0,
+    };
 }
 function getWindowHeight() {
     return (window.innerHeight ||
@@ -14138,48 +14820,38 @@ function getWindowWidth() {
         (document.documentElement && document.documentElement.clientWidth) ||
         (document.body && document.body.clientWidth));
 }
-function isBlocked(node, blockClass, blockSelector, unblockSelector) {
+function isBlocked(node, blockClass, blockSelector, unblockSelector, checkAncestors) {
     if (!node) {
         return false;
     }
-    if (node.nodeType === node.ELEMENT_NODE) {
-        let needBlock = false;
-        const needUnblock = unblockSelector && node.matches(unblockSelector);
-        if (typeof blockClass === 'string') {
-            if (node.closest !== undefined) {
-                needBlock =
-                    !needUnblock &&
-                        node.closest('.' + blockClass) !== null;
-            }
-            else {
-                needBlock =
-                    !needUnblock && node.classList.contains(blockClass);
-            }
-        }
-        else {
-            !needUnblock &&
-                node.classList.forEach((className) => {
-                    if (blockClass.test(className)) {
-                        needBlock = true;
-                    }
-                });
-        }
-        if (!needBlock && blockSelector) {
-            needBlock = node.matches(blockSelector);
-        }
-        return ((!needUnblock && needBlock) ||
-            isBlocked(node.parentNode, blockClass, blockSelector, unblockSelector));
+    const el = node.nodeType === node.ELEMENT_NODE
+        ? node
+        : node.parentElement;
+    if (!el)
+        return false;
+    const blockedPredicate = createMatchPredicate(blockClass, blockSelector);
+    if (!checkAncestors) {
+        const isUnblocked = unblockSelector && el.matches(unblockSelector);
+        return blockedPredicate(el) && !isUnblocked;
     }
-    if (node.nodeType === node.TEXT_NODE) {
-        return isBlocked(node.parentNode, blockClass, blockSelector, unblockSelector);
+    const blockDistance = distanceToMatch(el, blockedPredicate);
+    let unblockDistance = -1;
+    if (blockDistance < 0) {
+        return false;
     }
-    return isBlocked(node.parentNode, blockClass, blockSelector, unblockSelector);
+    if (unblockSelector) {
+        unblockDistance = distanceToMatch(el, createMatchPredicate(null, unblockSelector));
+    }
+    if (blockDistance > -1 && unblockDistance < 0) {
+        return true;
+    }
+    return blockDistance < unblockDistance;
 }
-function isIgnored(n) {
-    if ('__sn' in n) {
-        return n.__sn.id === IGNORED_NODE;
-    }
-    return false;
+function isSerialized(n, mirror) {
+    return mirror.getId(n) !== -1;
+}
+function isIgnored(n, mirror) {
+    return mirror.getId(n) === IGNORED_NODE;
 }
 function isAncestorRemoved(target, mirror) {
     if (isShadowRoot(target)) {
@@ -14198,7 +14870,7 @@ function isAncestorRemoved(target, mirror) {
     }
     return isAncestorRemoved(target.parentNode, mirror);
 }
-function isTouchEvent(event) {
+function legacy_isTouchEvent(event) {
     return Boolean(event.changedTouches);
 }
 function polyfill(win = window) {
@@ -14211,8 +14883,9 @@ function polyfill(win = window) {
             .forEach;
     }
     if (!Node.prototype.contains) {
-        Node.prototype.contains = function contains(node) {
-            if (!(0 in arguments)) {
+        Node.prototype.contains = (...args) => {
+            let node = args[0];
+            if (!(0 in args)) {
                 throw new TypeError('1 argument is required');
             }
             do {
@@ -14224,15 +14897,142 @@ function polyfill(win = window) {
         };
     }
 }
-function isIframeINode(node) {
-    if ('__sn' in node) {
-        return (node.__sn.type === NodeType$1.Element && node.__sn.tagName === 'iframe');
-    }
-    return false;
+function isSerializedIframe(n, mirror) {
+    return Boolean(n.nodeName === 'IFRAME' && mirror.getMeta(n));
+}
+function isSerializedStylesheet(n, mirror) {
+    return Boolean(n.nodeName === 'LINK' &&
+        n.nodeType === n.ELEMENT_NODE &&
+        n.getAttribute &&
+        n.getAttribute('rel') === 'stylesheet' &&
+        mirror.getMeta(n));
 }
 function hasShadowRoot(n) {
     return Boolean(n === null || n === void 0 ? void 0 : n.shadowRoot);
 }
+class StyleSheetMirror {
+    constructor() {
+        this.id = 1;
+        this.styleIDMap = new WeakMap();
+        this.idStyleMap = new Map();
+    }
+    getId(stylesheet) {
+        var _a;
+        return (_a = this.styleIDMap.get(stylesheet)) !== null && _a !== void 0 ? _a : -1;
+    }
+    has(stylesheet) {
+        return this.styleIDMap.has(stylesheet);
+    }
+    add(stylesheet, id) {
+        if (this.has(stylesheet))
+            return this.getId(stylesheet);
+        let newId;
+        if (id === undefined) {
+            newId = this.id++;
+        }
+        else
+            newId = id;
+        this.styleIDMap.set(stylesheet, newId);
+        this.idStyleMap.set(newId, stylesheet);
+        return newId;
+    }
+    getStyle(id) {
+        return this.idStyleMap.get(id) || null;
+    }
+    reset() {
+        this.styleIDMap = new WeakMap();
+        this.idStyleMap = new Map();
+        this.id = 1;
+    }
+    generateId() {
+        return this.id++;
+    }
+}
+function getShadowHost(n) {
+    var _a, _b;
+    let shadowHost = null;
+    if (((_b = (_a = n.getRootNode) === null || _a === void 0 ? void 0 : _a.call(n)) === null || _b === void 0 ? void 0 : _b.nodeType) === Node.DOCUMENT_FRAGMENT_NODE &&
+        n.getRootNode().host)
+        shadowHost = n.getRootNode().host;
+    return shadowHost;
+}
+function getRootShadowHost(n) {
+    let rootShadowHost = n;
+    let shadowHost;
+    while ((shadowHost = getShadowHost(rootShadowHost)))
+        rootShadowHost = shadowHost;
+    return rootShadowHost;
+}
+function shadowHostInDom(n) {
+    const doc = n.ownerDocument;
+    if (!doc)
+        return false;
+    const shadowHost = getRootShadowHost(n);
+    return doc.contains(shadowHost);
+}
+function inDom(n) {
+    const doc = n.ownerDocument;
+    if (!doc)
+        return false;
+    return doc.contains(n) || shadowHostInDom(n);
+}
+
+var EventType = /* @__PURE__ */ ((EventType2) => {
+  EventType2[EventType2["DomContentLoaded"] = 0] = "DomContentLoaded";
+  EventType2[EventType2["Load"] = 1] = "Load";
+  EventType2[EventType2["FullSnapshot"] = 2] = "FullSnapshot";
+  EventType2[EventType2["IncrementalSnapshot"] = 3] = "IncrementalSnapshot";
+  EventType2[EventType2["Meta"] = 4] = "Meta";
+  EventType2[EventType2["Custom"] = 5] = "Custom";
+  EventType2[EventType2["Plugin"] = 6] = "Plugin";
+  return EventType2;
+})(EventType || {});
+var IncrementalSource = /* @__PURE__ */ ((IncrementalSource2) => {
+  IncrementalSource2[IncrementalSource2["Mutation"] = 0] = "Mutation";
+  IncrementalSource2[IncrementalSource2["MouseMove"] = 1] = "MouseMove";
+  IncrementalSource2[IncrementalSource2["MouseInteraction"] = 2] = "MouseInteraction";
+  IncrementalSource2[IncrementalSource2["Scroll"] = 3] = "Scroll";
+  IncrementalSource2[IncrementalSource2["ViewportResize"] = 4] = "ViewportResize";
+  IncrementalSource2[IncrementalSource2["Input"] = 5] = "Input";
+  IncrementalSource2[IncrementalSource2["TouchMove"] = 6] = "TouchMove";
+  IncrementalSource2[IncrementalSource2["MediaInteraction"] = 7] = "MediaInteraction";
+  IncrementalSource2[IncrementalSource2["StyleSheetRule"] = 8] = "StyleSheetRule";
+  IncrementalSource2[IncrementalSource2["CanvasMutation"] = 9] = "CanvasMutation";
+  IncrementalSource2[IncrementalSource2["Font"] = 10] = "Font";
+  IncrementalSource2[IncrementalSource2["Log"] = 11] = "Log";
+  IncrementalSource2[IncrementalSource2["Drag"] = 12] = "Drag";
+  IncrementalSource2[IncrementalSource2["StyleDeclaration"] = 13] = "StyleDeclaration";
+  IncrementalSource2[IncrementalSource2["Selection"] = 14] = "Selection";
+  IncrementalSource2[IncrementalSource2["AdoptedStyleSheet"] = 15] = "AdoptedStyleSheet";
+  IncrementalSource2[IncrementalSource2["CustomElement"] = 16] = "CustomElement";
+  return IncrementalSource2;
+})(IncrementalSource || {});
+var MouseInteractions = /* @__PURE__ */ ((MouseInteractions2) => {
+  MouseInteractions2[MouseInteractions2["MouseUp"] = 0] = "MouseUp";
+  MouseInteractions2[MouseInteractions2["MouseDown"] = 1] = "MouseDown";
+  MouseInteractions2[MouseInteractions2["Click"] = 2] = "Click";
+  MouseInteractions2[MouseInteractions2["ContextMenu"] = 3] = "ContextMenu";
+  MouseInteractions2[MouseInteractions2["DblClick"] = 4] = "DblClick";
+  MouseInteractions2[MouseInteractions2["Focus"] = 5] = "Focus";
+  MouseInteractions2[MouseInteractions2["Blur"] = 6] = "Blur";
+  MouseInteractions2[MouseInteractions2["TouchStart"] = 7] = "TouchStart";
+  MouseInteractions2[MouseInteractions2["TouchMove_Departed"] = 8] = "TouchMove_Departed";
+  MouseInteractions2[MouseInteractions2["TouchEnd"] = 9] = "TouchEnd";
+  MouseInteractions2[MouseInteractions2["TouchCancel"] = 10] = "TouchCancel";
+  return MouseInteractions2;
+})(MouseInteractions || {});
+var PointerTypes = /* @__PURE__ */ ((PointerTypes2) => {
+  PointerTypes2[PointerTypes2["Mouse"] = 0] = "Mouse";
+  PointerTypes2[PointerTypes2["Pen"] = 1] = "Pen";
+  PointerTypes2[PointerTypes2["Touch"] = 2] = "Touch";
+  return PointerTypes2;
+})(PointerTypes || {});
+var CanvasContext = /* @__PURE__ */ ((CanvasContext2) => {
+  CanvasContext2[CanvasContext2["2D"] = 0] = "2D";
+  CanvasContext2[CanvasContext2["WebGL"] = 1] = "WebGL";
+  CanvasContext2[CanvasContext2["WebGL2"] = 2] = "WebGL2";
+  return CanvasContext2;
+})(CanvasContext || {});
 
 function isNodeInLinkedList(n) {
     return '__ln' in n;
@@ -14241,6 +15041,7 @@ class DoubleLinkedList {
     constructor() {
         this.length = 0;
         this.head = null;
+        this.tail = null;
     }
     get(position) {
         if (position >= this.length) {
@@ -14286,6 +15087,9 @@ class DoubleLinkedList {
             node.next = this.head;
             this.head = node;
         }
+        if (node.next === null) {
+            this.tail = node;
+        }
         this.length++;
     }
     removeNode(n) {
@@ -14298,11 +15102,17 @@ class DoubleLinkedList {
             if (this.head) {
                 this.head.previous = null;
             }
+            else {
+                this.tail = null;
+            }
         }
         else {
             current.previous.next = current.next;
             if (current.next) {
                 current.next.previous = current.previous;
+            }
+            else {
+                this.tail = current.previous;
             }
         }
         if (n.__ln) {
@@ -14312,9 +15122,6 @@ class DoubleLinkedList {
     }
 }
 const moveKey = (id, parentId) => `${id}@${parentId}`;
-function isINode(n) {
-    return '__sn' in n;
-}
 class MutationBuffer {
     constructor() {
         this.frozen = false;
@@ -14336,6 +15143,7 @@ class MutationBuffer {
                 return;
             }
             const adds = [];
+            const addedIds = new Set();
             const addList = new DoubleLinkedList();
             const getNextId = (n) => {
                 let ns = n;
@@ -14347,58 +15155,55 @@ class MutationBuffer {
                 return nextId;
             };
             const pushAdd = (n) => {
-                var _a, _b, _c, _d, _e;
-                const shadowHost = n.getRootNode
-                    ? (_a = n.getRootNode()) === null || _a === void 0 ? void 0 : _a.host
-                    : null;
-                let rootShadowHost = shadowHost;
-                while ((_c = (_b = rootShadowHost === null || rootShadowHost === void 0 ? void 0 : rootShadowHost.getRootNode) === null || _b === void 0 ? void 0 : _b.call(rootShadowHost)) === null || _c === void 0 ? void 0 : _c.host)
-                    rootShadowHost =
-                        ((_e = (_d = rootShadowHost === null || rootShadowHost === void 0 ? void 0 : rootShadowHost.getRootNode) === null || _d === void 0 ? void 0 : _d.call(rootShadowHost)) === null || _e === void 0 ? void 0 : _e.host) ||
-                            null;
-                const notInDoc = !this.doc.contains(n) &&
-                    (!rootShadowHost || !this.doc.contains(rootShadowHost));
-                if (!n.parentNode || notInDoc) {
+                if (!n.parentNode || !inDom(n)) {
                     return;
                 }
                 const parentId = isShadowRoot(n.parentNode)
-                    ? this.mirror.getId(shadowHost)
+                    ? this.mirror.getId(getShadowHost(n))
                     : this.mirror.getId(n.parentNode);
                 const nextId = getNextId(n);
                 if (parentId === -1 || nextId === -1) {
                     return addList.addNode(n);
                 }
-                let sn = serializeNodeWithId(n, {
+                const sn = serializeNodeWithId(n, {
                     doc: this.doc,
-                    map: this.mirror.map,
+                    mirror: this.mirror,
                     blockClass: this.blockClass,
                     blockSelector: this.blockSelector,
+                    maskAllText: this.maskAllText,
                     unblockSelector: this.unblockSelector,
                     maskTextClass: this.maskTextClass,
+                    unmaskTextClass: this.unmaskTextClass,
                     maskTextSelector: this.maskTextSelector,
                     unmaskTextSelector: this.unmaskTextSelector,
-                    maskInputSelector: this.maskInputSelector,
-                    unmaskInputSelector: this.unmaskInputSelector,
                     skipChild: true,
+                    newlyAddedElement: true,
                     inlineStylesheet: this.inlineStylesheet,
-                    maskAllText: this.maskAllText,
                     maskInputOptions: this.maskInputOptions,
+                    maskAttributeFn: this.maskAttributeFn,
                     maskTextFn: this.maskTextFn,
                     maskInputFn: this.maskInputFn,
                     slimDOMOptions: this.slimDOMOptions,
+                    dataURLOptions: this.dataURLOptions,
                     recordCanvas: this.recordCanvas,
                     inlineImages: this.inlineImages,
                     onSerialize: (currentN) => {
-                        if (isIframeINode(currentN)) {
+                        if (isSerializedIframe(currentN, this.mirror)) {
                             this.iframeManager.addIframe(currentN);
                         }
+                        if (isSerializedStylesheet(currentN, this.mirror)) {
+                            this.stylesheetManager.trackLinkElement(currentN);
+                        }
                         if (hasShadowRoot(n)) {
-                            this.shadowDomManager.addShadowRoot(n.shadowRoot, document);
+                            this.shadowDomManager.addShadowRoot(n.shadowRoot, this.doc);
                         }
                     },
                     onIframeLoad: (iframe, childSn) => {
                         this.iframeManager.attachIframe(iframe, childSn);
                         this.shadowDomManager.observeAttachShadow(iframe);
+                    },
+                    onStylesheetLoad: (link, childSn) => {
+                        this.stylesheetManager.attachLinkElement(link, childSn);
                     },
                 });
                 if (sn) {
@@ -14407,6 +15212,7 @@ class MutationBuffer {
                         nextId,
                         node: sn,
                     });
+                    addedIds.add(sn.id);
                 }
             };
             while (this.mapRemoves.length) {
@@ -14442,14 +15248,32 @@ class MutationBuffer {
                     }
                 }
                 if (!node) {
-                    for (let index = addList.length - 1; index >= 0; index--) {
-                        const _node = addList.get(index);
+                    let tailNode = addList.tail;
+                    while (tailNode) {
+                        const _node = tailNode;
+                        tailNode = tailNode.previous;
                         if (_node) {
                             const parentId = this.mirror.getId(_node.value.parentNode);
                             const nextId = getNextId(_node.value);
-                            if (parentId !== -1 && nextId !== -1) {
+                            if (nextId === -1)
+                                continue;
+                            else if (parentId !== -1) {
                                 node = _node;
                                 break;
+                            }
+                            else {
+                                const unhandledNode = _node.value;
+                                if (unhandledNode.parentNode &&
+                                    unhandledNode.parentNode.nodeType ===
+                                        Node.DOCUMENT_FRAGMENT_NODE) {
+                                    const shadowHost = unhandledNode.parentNode
+                                        .host;
+                                    const parentId = this.mirror.getId(shadowHost);
+                                    if (parentId !== -1) {
+                                        node = _node;
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
@@ -14470,12 +15294,27 @@ class MutationBuffer {
                     id: this.mirror.getId(text.node),
                     value: text.value,
                 }))
+                    .filter((text) => !addedIds.has(text.id))
                     .filter((text) => this.mirror.has(text.id)),
                 attributes: this.attributes
-                    .map((attribute) => ({
-                    id: this.mirror.getId(attribute.node),
-                    attributes: attribute.attributes,
-                }))
+                    .map((attribute) => {
+                    const { attributes } = attribute;
+                    if (typeof attributes.style === 'string') {
+                        const diffAsStr = JSON.stringify(attribute.styleDiff);
+                        const unchangedAsStr = JSON.stringify(attribute._unchangedStyles);
+                        if (diffAsStr.length < attributes.style.length) {
+                            if ((diffAsStr + unchangedAsStr).split('var(').length ===
+                                attributes.style.split('var(').length) {
+                                attributes.style = attribute.styleDiff;
+                            }
+                        }
+                    }
+                    return {
+                        id: this.mirror.getId(attribute.node),
+                        attributes: attributes,
+                    };
+                })
+                    .filter((attribute) => !addedIds.has(attribute.id))
                     .filter((attribute) => this.mirror.has(attribute.id)),
                 removes: this.removes,
                 adds,
@@ -14496,15 +15335,23 @@ class MutationBuffer {
             this.mutationCb(payload);
         };
         this.processMutation = (m) => {
-            if (isIgnored(m.target)) {
+            if (isIgnored(m.target, this.mirror)) {
                 return;
+            }
+            let unattachedDoc;
+            try {
+                unattachedDoc = document.implementation.createHTMLDocument();
+            }
+            catch (e) {
+                unattachedDoc = this.doc;
             }
             switch (m.type) {
                 case 'characterData': {
                     const value = m.target.textContent;
-                    if (!isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector) && value !== m.oldValue) {
+                    if (!isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector, false) &&
+                        value !== m.oldValue) {
                         this.texts.push({
-                            value: needMaskingText(m.target, this.maskTextClass, this.maskTextSelector, this.unmaskTextSelector, this.maskAllText) && value
+                            value: needMaskingText(m.target, this.maskTextClass, this.maskTextSelector, this.unmaskTextClass, this.unmaskTextSelector, this.maskAllText) && value
                                 ? this.maskTextFn
                                     ? this.maskTextFn(value)
                                     : value.replace(/[\S]/g, '*')
@@ -14516,83 +15363,99 @@ class MutationBuffer {
                 }
                 case 'attributes': {
                     const target = m.target;
-                    let value = target.getAttribute(m.attributeName);
-                    if (m.attributeName === 'value') {
-                        value = maskInputValue({
-                            input: target,
-                            maskInputSelector: this.maskInputSelector,
-                            unmaskInputSelector: this.unmaskInputSelector,
+                    let attributeName = m.attributeName;
+                    let value = m.target.getAttribute(attributeName);
+                    if (attributeName === 'value') {
+                        const type = getInputType(target);
+                        const tagName = target.tagName;
+                        value = getInputValue(target, tagName, type);
+                        const isInputMasked = shouldMaskInput({
                             maskInputOptions: this.maskInputOptions,
-                            tagName: target.tagName,
-                            type: target.getAttribute('type'),
+                            tagName,
+                            type,
+                        });
+                        const forceMask = needMaskingText(m.target, this.maskTextClass, this.maskTextSelector, this.unmaskTextClass, this.unmaskTextSelector, isInputMasked);
+                        value = maskInputValue({
+                            isMasked: forceMask,
+                            element: target,
                             value,
                             maskInputFn: this.maskInputFn,
                         });
                     }
-                    if (isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector) || value === m.oldValue) {
+                    if (isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector, false) ||
+                        value === m.oldValue) {
                         return;
                     }
                     let item = this.attributes.find((a) => a.node === m.target);
+                    if (target.tagName === 'IFRAME' &&
+                        attributeName === 'src' &&
+                        !this.keepIframeSrcFn(value)) {
+                        if (!target.contentDocument) {
+                            attributeName = 'rr_src';
+                        }
+                        else {
+                            return;
+                        }
+                    }
                     if (!item) {
                         item = {
                             node: m.target,
                             attributes: {},
+                            styleDiff: {},
+                            _unchangedStyles: {},
                         };
                         this.attributes.push(item);
                     }
-                    if (m.attributeName === 'type' &&
+                    if (attributeName === 'type' &&
                         target.tagName === 'INPUT' &&
                         (m.oldValue || '').toLowerCase() === 'password') {
                         target.setAttribute('data-rr-is-password', 'true');
                     }
-                    if (m.attributeName === 'style') {
-                        const old = this.doc.createElement('span');
-                        if (m.oldValue) {
-                            old.setAttribute('style', m.oldValue);
-                        }
-                        if (item.attributes.style === undefined ||
-                            item.attributes.style === null) {
-                            item.attributes.style = {};
-                        }
-                        try {
-                            const styleObj = item.attributes.style;
+                    if (!ignoreAttribute(target.tagName, attributeName)) {
+                        item.attributes[attributeName] = transformAttribute(this.doc, toLowerCase(target.tagName), toLowerCase(attributeName), value, target, this.maskAttributeFn);
+                        if (attributeName === 'style') {
+                            const old = unattachedDoc.createElement('span');
+                            if (m.oldValue) {
+                                old.setAttribute('style', m.oldValue);
+                            }
                             for (const pname of Array.from(target.style)) {
                                 const newValue = target.style.getPropertyValue(pname);
                                 const newPriority = target.style.getPropertyPriority(pname);
                                 if (newValue !== old.style.getPropertyValue(pname) ||
                                     newPriority !== old.style.getPropertyPriority(pname)) {
                                     if (newPriority === '') {
-                                        styleObj[pname] = newValue;
+                                        item.styleDiff[pname] = newValue;
                                     }
                                     else {
-                                        styleObj[pname] = [newValue, newPriority];
+                                        item.styleDiff[pname] = [newValue, newPriority];
                                     }
+                                }
+                                else {
+                                    item._unchangedStyles[pname] = [newValue, newPriority];
                                 }
                             }
                             for (const pname of Array.from(old.style)) {
                                 if (target.style.getPropertyValue(pname) === '') {
-                                    styleObj[pname] = false;
+                                    item.styleDiff[pname] = false;
                                 }
                             }
                         }
-                        catch (error) {
-                            console.warn('[rrweb] Error when parsing update to style attribute:', error);
-                        }
-                    }
-                    else {
-                        const element = m.target;
-                        item.attributes[m.attributeName] = transformAttribute(this.doc, element, element.tagName, m.attributeName, value, this.maskAllText, this.unmaskTextSelector, this.maskTextFn);
                     }
                     break;
                 }
                 case 'childList': {
+                    if (isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector, true)) {
+                        return;
+                    }
                     m.addedNodes.forEach((n) => this.genAdds(n, m.target));
                     m.removedNodes.forEach((n) => {
                         const nodeId = this.mirror.getId(n);
                         const parentId = isShadowRoot(m.target)
                             ? this.mirror.getId(m.target.host)
                             : this.mirror.getId(m.target);
-                        if (isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector) || isIgnored(n)) {
+                        if (isBlocked(m.target, this.blockClass, this.blockSelector, this.unblockSelector, false) ||
+                            isIgnored(n, this.mirror) ||
+                            !isSerialized(n, this.mirror)) {
                             return;
                         }
                         if (this.addedSet.has(n)) {
@@ -14609,7 +15472,9 @@ class MutationBuffer {
                             this.removes.push({
                                 parentId,
                                 id: nodeId,
-                                isShadow: isShadowRoot(m.target) ? true : undefined,
+                                isShadow: isShadowRoot(m.target) && isNativeShadowDom(m.target)
+                                    ? true
+                                    : undefined,
                             });
                         }
                         this.mapRemoves.push(n);
@@ -14619,28 +15484,36 @@ class MutationBuffer {
             }
         };
         this.genAdds = (n, target) => {
-            if (target && isBlocked(target, this.blockClass, this.blockSelector, this.unblockSelector)) {
+            if (this.processedNodeManager.inOtherBuffer(n, this))
                 return;
-            }
-            if (isINode(n)) {
-                if (isIgnored(n)) {
+            if (this.addedSet.has(n) || this.movedSet.has(n))
+                return;
+            if (this.mirror.hasNode(n)) {
+                if (isIgnored(n, this.mirror)) {
                     return;
                 }
                 this.movedSet.add(n);
                 let targetId = null;
-                if (target && isINode(target)) {
-                    targetId = target.__sn.id;
+                if (target && this.mirror.hasNode(target)) {
+                    targetId = this.mirror.getId(target);
                 }
-                if (targetId) {
-                    this.movedMap[moveKey(n.__sn.id, targetId)] = true;
+                if (targetId && targetId !== -1) {
+                    this.movedMap[moveKey(this.mirror.getId(n), targetId)] = true;
                 }
             }
             else {
                 this.addedSet.add(n);
                 this.droppedSet.delete(n);
             }
-            if (!isBlocked(n, this.blockClass, this.blockSelector, this.unblockSelector))
+            if (!isBlocked(n, this.blockClass, this.blockSelector, this.unblockSelector, false)) {
                 n.childNodes.forEach((childN) => this.genAdds(childN));
+                if (hasShadowRoot(n)) {
+                    n.shadowRoot.childNodes.forEach((childN) => {
+                        this.processedNodeManager.add(childN, this);
+                        this.genAdds(childN, n);
+                    });
+                }
+            }
         };
     }
     init(options) {
@@ -14649,24 +15522,28 @@ class MutationBuffer {
             'blockClass',
             'blockSelector',
             'unblockSelector',
+            'maskAllText',
             'maskTextClass',
+            'unmaskTextClass',
             'maskTextSelector',
             'unmaskTextSelector',
-            'maskInputSelector',
-            'unmaskInputSelector',
             'inlineStylesheet',
-            'maskAllText',
             'maskInputOptions',
+            'maskAttributeFn',
             'maskTextFn',
             'maskInputFn',
+            'keepIframeSrcFn',
             'recordCanvas',
             'inlineImages',
             'slimDOMOptions',
+            'dataURLOptions',
             'doc',
             'mirror',
             'iframeManager',
+            'stylesheetManager',
             'shadowDomManager',
             'canvasManager',
+            'processedNodeManager',
         ].forEach((key) => {
             this[key] = options[key];
         });
@@ -14702,6 +15579,11 @@ function deepDelete(addsSet, n) {
     n.childNodes.forEach((childN) => deepDelete(addsSet, childN));
 }
 function isParentRemoved(removes, n, mirror) {
+    if (removes.length === 0)
+        return false;
+    return _isParentRemoved(removes, n, mirror);
+}
+function _isParentRemoved(removes, n, mirror) {
     const { parentNode } = n;
     if (!parentNode) {
         return false;
@@ -14710,9 +15592,14 @@ function isParentRemoved(removes, n, mirror) {
     if (removes.some((r) => r.id === parentId)) {
         return true;
     }
-    return isParentRemoved(removes, parentNode, mirror);
+    return _isParentRemoved(removes, parentNode, mirror);
 }
 function isAncestorInSet(set, n) {
+    if (set.size === 0)
+        return false;
+    return _isAncestorInSet(set, n);
+}
+function _isAncestorInSet(set, n) {
     const { parentNode } = n;
     if (!parentNode) {
         return false;
@@ -14720,23 +15607,32 @@ function isAncestorInSet(set, n) {
     if (set.has(parentNode)) {
         return true;
     }
-    return isAncestorInSet(set, parentNode);
+    return _isAncestorInSet(set, parentNode);
 }
 
+let errorHandler;
+function registerErrorHandler(handler) {
+    errorHandler = handler;
+}
+function unregisterErrorHandler() {
+    errorHandler = undefined;
+}
 const callbackWrapper = (cb) => {
-    const rrwebWrapped = (...rest) => {
+    if (!errorHandler) {
+        return cb;
+    }
+    const rrwebWrapped = ((...rest) => {
         try {
             return cb(...rest);
         }
         catch (error) {
-            try {
-                error.__rrweb__ = true;
-            }
-            catch (_a) {
+            if (errorHandler && errorHandler(error) === true) {
+                return () => {
+                };
             }
             throw error;
         }
-    };
+    });
     return rrwebWrapped;
 };
 
@@ -14753,7 +15649,8 @@ function getEventTarget(event) {
             return event.path[0];
         }
     }
-    catch (_a) { }
+    catch (_a) {
+    }
     return event && event.target;
 }
 function initMutationObserver(options, rootEl) {
@@ -14772,7 +15669,7 @@ function initMutationObserver(options, rootEl) {
         if (options.onMutation && options.onMutation(mutations) === false) {
             return;
         }
-        mutationBuffer.processMutations(mutations);
+        mutationBuffer.processMutations.bind(mutationBuffer)(mutations);
     }));
     observer.observe(rootEl, {
         attributes: true,
@@ -14786,7 +15683,8 @@ function initMutationObserver(options, rootEl) {
 }
 function initMoveObserver({ mousemoveCb, sampling, doc, mirror, }) {
     if (sampling.mousemove === false) {
-        return () => { };
+        return () => {
+        };
     }
     const threshold = typeof sampling.mousemove === 'number' ? sampling.mousemove : 50;
     const callbackThreshold = typeof sampling.mousemoveCallback === 'number'
@@ -14794,41 +15692,41 @@ function initMoveObserver({ mousemoveCb, sampling, doc, mirror, }) {
         : 500;
     let positions = [];
     let timeBaseline;
-    const wrappedCb = throttle$1((source) => {
+    const wrappedCb = throttle$1(callbackWrapper((source) => {
         const totalOffset = Date.now() - timeBaseline;
-        callbackWrapper(mousemoveCb)(positions.map((p) => {
+        mousemoveCb(positions.map((p) => {
             p.timeOffset -= totalOffset;
             return p;
         }), source);
         positions = [];
         timeBaseline = null;
-    }, callbackThreshold);
-    const updatePosition = throttle$1((evt) => {
+    }), callbackThreshold);
+    const updatePosition = callbackWrapper(throttle$1(callbackWrapper((evt) => {
         const target = getEventTarget(evt);
-        const { clientX, clientY } = isTouchEvent(evt)
+        const { clientX, clientY } = legacy_isTouchEvent(evt)
             ? evt.changedTouches[0]
             : evt;
         if (!timeBaseline) {
-            timeBaseline = Date.now();
+            timeBaseline = nowTimestamp();
         }
         positions.push({
             x: clientX,
             y: clientY,
             id: mirror.getId(target),
-            timeOffset: Date.now() - timeBaseline,
+            timeOffset: nowTimestamp() - timeBaseline,
         });
         wrappedCb(typeof DragEvent !== 'undefined' && evt instanceof DragEvent
             ? IncrementalSource.Drag
             : evt instanceof MouseEvent
                 ? IncrementalSource.MouseMove
                 : IncrementalSource.TouchMove);
-    }, threshold, {
+    }), threshold, {
         trailing: false,
-    });
+    }));
     const handlers = [
-        on('mousemove', callbackWrapper(updatePosition), doc),
-        on('touchmove', callbackWrapper(updatePosition), doc),
-        on('drag', callbackWrapper(updatePosition), doc),
+        on('mousemove', updatePosition, doc),
+        on('touchmove', updatePosition, doc),
+        on('drag', updatePosition, doc),
     ];
     return callbackWrapper(() => {
         handlers.forEach((h) => h());
@@ -14836,31 +15734,68 @@ function initMoveObserver({ mousemoveCb, sampling, doc, mirror, }) {
 }
 function initMouseInteractionObserver({ mouseInteractionCb, doc, mirror, blockClass, blockSelector, unblockSelector, sampling, }) {
     if (sampling.mouseInteraction === false) {
-        return () => { };
+        return () => {
+        };
     }
     const disableMap = sampling.mouseInteraction === true ||
         sampling.mouseInteraction === undefined
         ? {}
         : sampling.mouseInteraction;
     const handlers = [];
+    let currentPointerType = null;
     const getHandler = (eventKey) => {
         return (event) => {
             const target = getEventTarget(event);
-            if (isBlocked(target, blockClass, blockSelector, unblockSelector)) {
+            if (isBlocked(target, blockClass, blockSelector, unblockSelector, true)) {
                 return;
             }
-            const e = isTouchEvent(event) ? event.changedTouches[0] : event;
+            let pointerType = null;
+            let thisEventKey = eventKey;
+            if ('pointerType' in event) {
+                switch (event.pointerType) {
+                    case 'mouse':
+                        pointerType = PointerTypes.Mouse;
+                        break;
+                    case 'touch':
+                        pointerType = PointerTypes.Touch;
+                        break;
+                    case 'pen':
+                        pointerType = PointerTypes.Pen;
+                        break;
+                }
+                if (pointerType === PointerTypes.Touch) {
+                    if (MouseInteractions[eventKey] === MouseInteractions.MouseDown) {
+                        thisEventKey = 'TouchStart';
+                    }
+                    else if (MouseInteractions[eventKey] === MouseInteractions.MouseUp) {
+                        thisEventKey = 'TouchEnd';
+                    }
+                }
+                else if (pointerType === PointerTypes.Pen) ;
+            }
+            else if (legacy_isTouchEvent(event)) {
+                pointerType = PointerTypes.Touch;
+            }
+            if (pointerType !== null) {
+                currentPointerType = pointerType;
+                if ((thisEventKey.startsWith('Touch') &&
+                    pointerType === PointerTypes.Touch) ||
+                    (thisEventKey.startsWith('Mouse') &&
+                        pointerType === PointerTypes.Mouse)) {
+                    pointerType = null;
+                }
+            }
+            else if (MouseInteractions[eventKey] === MouseInteractions.Click) {
+                pointerType = currentPointerType;
+                currentPointerType = null;
+            }
+            const e = legacy_isTouchEvent(event) ? event.changedTouches[0] : event;
             if (!e) {
                 return;
             }
             const id = mirror.getId(target);
             const { clientX, clientY } = e;
-            callbackWrapper(mouseInteractionCb)({
-                type: MouseInteractions[eventKey],
-                id,
-                x: clientX,
-                y: clientY,
-            });
+            callbackWrapper(mouseInteractionCb)(Object.assign({ type: MouseInteractions[thisEventKey], id, x: clientX, y: clientY }, (pointerType !== null && { pointerType })));
         };
     };
     Object.keys(MouseInteractions)
@@ -14868,8 +15803,19 @@ function initMouseInteractionObserver({ mouseInteractionCb, doc, mirror, blockCl
         !key.endsWith('_Departed') &&
         disableMap[key] !== false)
         .forEach((eventKey) => {
-        const eventName = eventKey.toLowerCase();
-        const handler = callbackWrapper(getHandler(eventKey));
+        let eventName = toLowerCase(eventKey);
+        const handler = getHandler(eventKey);
+        if (window.PointerEvent) {
+            switch (MouseInteractions[eventKey]) {
+                case MouseInteractions.MouseDown:
+                case MouseInteractions.MouseUp:
+                    eventName = eventName.replace('mouse', 'pointer');
+                    break;
+                case MouseInteractions.TouchStart:
+                case MouseInteractions.TouchEnd:
+                    return;
+            }
+        }
         handlers.push(on(eventName, handler, doc));
     });
     return callbackWrapper(() => {
@@ -14877,47 +15823,47 @@ function initMouseInteractionObserver({ mouseInteractionCb, doc, mirror, blockCl
     });
 }
 function initScrollObserver({ scrollCb, doc, mirror, blockClass, blockSelector, unblockSelector, sampling, }) {
-    const updatePosition = throttle$1((evt) => {
+    const updatePosition = callbackWrapper(throttle$1(callbackWrapper((evt) => {
         const target = getEventTarget(evt);
         if (!target ||
-            isBlocked(target, blockClass, blockSelector, unblockSelector)) {
+            isBlocked(target, blockClass, blockSelector, unblockSelector, true)) {
             return;
         }
         const id = mirror.getId(target);
-        if (target === doc) {
-            const scrollEl = (doc.scrollingElement || doc.documentElement);
-            callbackWrapper(scrollCb)({
+        if (target === doc && doc.defaultView) {
+            const scrollLeftTop = getWindowScroll(doc.defaultView);
+            scrollCb({
                 id,
-                x: scrollEl.scrollLeft,
-                y: scrollEl.scrollTop,
+                x: scrollLeftTop.left,
+                y: scrollLeftTop.top,
             });
         }
         else {
-            callbackWrapper(scrollCb)({
+            scrollCb({
                 id,
                 x: target.scrollLeft,
                 y: target.scrollTop,
             });
         }
-    }, sampling.scroll || 100);
-    return on('scroll', callbackWrapper(updatePosition), doc);
+    }), sampling.scroll || 100));
+    return on('scroll', updatePosition, doc);
 }
-function initViewportResizeObserver({ viewportResizeCb, }) {
+function initViewportResizeObserver({ viewportResizeCb }, { win }) {
     let lastH = -1;
     let lastW = -1;
-    const updateDimension = throttle$1(() => {
+    const updateDimension = callbackWrapper(throttle$1(callbackWrapper(() => {
         const height = getWindowHeight();
         const width = getWindowWidth();
         if (lastH !== height || lastW !== width) {
-            callbackWrapper(viewportResizeCb)({
+            viewportResizeCb({
                 width: Number(width),
                 height: Number(height),
             });
             lastH = height;
             lastW = width;
         }
-    }, 200);
-    return on('resize', callbackWrapper(updateDimension), window);
+    }), 200));
+    return on('resize', updateDimension, win);
 }
 function wrapEventWithUserTriggeredFlag(v, enable) {
     const value = Object.assign({}, v);
@@ -14927,47 +15873,42 @@ function wrapEventWithUserTriggeredFlag(v, enable) {
 }
 const INPUT_TAGS = ['INPUT', 'TEXTAREA', 'SELECT'];
 const lastInputValueMap = new WeakMap();
-function initInputObserver({ inputCb, doc, mirror, blockClass, blockSelector, unblockSelector, ignoreClass, ignoreSelector, maskInputSelector, unmaskInputSelector, maskInputOptions, maskInputFn, sampling, userTriggeredOnInput, }) {
+function initInputObserver({ inputCb, doc, mirror, blockClass, blockSelector, unblockSelector, ignoreClass, ignoreSelector, maskInputOptions, maskInputFn, sampling, userTriggeredOnInput, maskTextClass, unmaskTextClass, maskTextSelector, unmaskTextSelector, }) {
     function eventHandler(event) {
         let target = getEventTarget(event);
-        const tagName = target && target.tagName;
         const userTriggered = event.isTrusted;
+        const tagName = target && toUpperCase(target.tagName);
         if (tagName === 'OPTION')
             target = target.parentElement;
         if (!target ||
             !tagName ||
             INPUT_TAGS.indexOf(tagName) < 0 ||
-            isBlocked(target, blockClass, blockSelector, unblockSelector)) {
+            isBlocked(target, blockClass, blockSelector, unblockSelector, true)) {
             return;
         }
         const el = target;
-        const type = getInputType(el);
         if (el.classList.contains(ignoreClass) ||
             (ignoreSelector && el.matches(ignoreSelector))) {
             return;
         }
+        const type = getInputType(target);
         let text = getInputValue(el, tagName, type);
         let isChecked = false;
+        const isInputMasked = shouldMaskInput({
+            maskInputOptions,
+            tagName,
+            type,
+        });
+        const forceMask = needMaskingText(target, maskTextClass, maskTextSelector, unmaskTextClass, unmaskTextSelector, isInputMasked);
         if (type === 'radio' || type === 'checkbox') {
             isChecked = target.checked;
         }
-        if (hasInputMaskOptions({
-            maskInputOptions,
-            maskInputSelector,
-            tagName,
-            type,
-        })) {
-            text = maskInputValue({
-                input: el,
-                maskInputOptions,
-                maskInputSelector,
-                unmaskInputSelector,
-                tagName,
-                type,
-                value: text,
-                maskInputFn,
-            });
-        }
+        text = maskInputValue({
+            isMasked: forceMask,
+            element: target,
+            value: text,
+            maskInputFn,
+        });
         cbWithDedup(target, callbackWrapper(wrapEventWithUserTriggeredFlag)({ text, isChecked, userTriggered }, userTriggeredOnInput));
         const name = target.name;
         if (type === 'radio' && name && isChecked) {
@@ -14976,12 +15917,8 @@ function initInputObserver({ inputCb, doc, mirror, blockClass, blockSelector, un
                 .forEach((el) => {
                 if (el !== target) {
                     const text = maskInputValue({
-                        input: el,
-                        maskInputOptions,
-                        maskInputSelector,
-                        unmaskInputSelector,
-                        tagName,
-                        type,
+                        isMasked: forceMask,
+                        element: el,
                         value: getInputValue(el, tagName, type),
                         maskInputFn,
                     });
@@ -15001,26 +15938,35 @@ function initInputObserver({ inputCb, doc, mirror, blockClass, blockSelector, un
             lastInputValue.isChecked !== v.isChecked) {
             lastInputValueMap.set(target, v);
             const id = mirror.getId(target);
-            inputCb(Object.assign(Object.assign({}, v), { id }));
+            callbackWrapper(inputCb)(Object.assign(Object.assign({}, v), { id }));
         }
     }
     const events = sampling.input === 'last' ? ['change'] : ['input', 'change'];
     const handlers = events.map((eventName) => on(eventName, callbackWrapper(eventHandler), doc));
-    const propertyDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    const currentWindow = doc.defaultView;
+    if (!currentWindow) {
+        return () => {
+            handlers.forEach((h) => h());
+        };
+    }
+    const propertyDescriptor = currentWindow.Object.getOwnPropertyDescriptor(currentWindow.HTMLInputElement.prototype, 'value');
     const hookProperties = [
-        [HTMLInputElement.prototype, 'value'],
-        [HTMLInputElement.prototype, 'checked'],
-        [HTMLSelectElement.prototype, 'value'],
-        [HTMLTextAreaElement.prototype, 'value'],
-        [HTMLSelectElement.prototype, 'selectedIndex'],
-        [HTMLOptionElement.prototype, 'selected'],
+        [currentWindow.HTMLInputElement.prototype, 'value'],
+        [currentWindow.HTMLInputElement.prototype, 'checked'],
+        [currentWindow.HTMLSelectElement.prototype, 'value'],
+        [currentWindow.HTMLTextAreaElement.prototype, 'value'],
+        [currentWindow.HTMLSelectElement.prototype, 'selectedIndex'],
+        [currentWindow.HTMLOptionElement.prototype, 'selected'],
     ];
     if (propertyDescriptor && propertyDescriptor.set) {
         handlers.push(...hookProperties.map((p) => hookSetter(p[0], p[1], {
             set() {
-                callbackWrapper(eventHandler)({ target: this });
+                callbackWrapper(eventHandler)({
+                    target: this,
+                    isTrusted: false,
+                });
             },
-        })));
+        }, false, currentWindow)));
     }
     return callbackWrapper(() => {
         handlers.forEach((h) => h());
@@ -15041,7 +15987,7 @@ function getNestedCSSRulePositions(rule) {
             const index = rules.indexOf(childRule);
             pos.unshift(index);
         }
-        else {
+        else if (childRule.parentStyleSheet) {
             const rules = Array.from(childRule.parentStyleSheet.cssRules);
             const index = rules.indexOf(childRule);
             pos.unshift(index);
@@ -15050,18 +15996,33 @@ function getNestedCSSRulePositions(rule) {
     }
     return recurse(rule, positions);
 }
-function initStyleSheetObserver({ styleSheetRuleCb, mirror }, { win }) {
+function getIdAndStyleId(sheet, mirror, styleMirror) {
+    let id, styleId;
+    if (!sheet)
+        return {};
+    if (sheet.ownerNode)
+        id = mirror.getId(sheet.ownerNode);
+    else
+        styleId = styleMirror.getId(sheet);
+    return {
+        styleId,
+        id,
+    };
+}
+function initStyleSheetObserver({ styleSheetRuleCb, mirror, stylesheetManager }, { win }) {
     if (!win.CSSStyleSheet || !win.CSSStyleSheet.prototype) {
-        return () => { };
+        return () => {
+        };
     }
     const insertRule = win.CSSStyleSheet.prototype.insertRule;
     win.CSSStyleSheet.prototype.insertRule = new Proxy(insertRule, {
         apply: callbackWrapper((target, thisArg, argumentsList) => {
             const [rule, index] = argumentsList;
-            const id = mirror.getId(thisArg.ownerNode);
-            if (id !== -1) {
+            const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+            if ((id && id !== -1) || (styleId && styleId !== -1)) {
                 styleSheetRuleCb({
                     id,
+                    styleId,
                     adds: [{ rule, index }],
                 });
             }
@@ -15072,16 +16033,53 @@ function initStyleSheetObserver({ styleSheetRuleCb, mirror }, { win }) {
     win.CSSStyleSheet.prototype.deleteRule = new Proxy(deleteRule, {
         apply: callbackWrapper((target, thisArg, argumentsList) => {
             const [index] = argumentsList;
-            const id = mirror.getId(thisArg.ownerNode);
-            if (id !== -1) {
+            const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+            if ((id && id !== -1) || (styleId && styleId !== -1)) {
                 styleSheetRuleCb({
                     id,
+                    styleId,
                     removes: [{ index }],
                 });
             }
             return target.apply(thisArg, argumentsList);
         }),
     });
+    let replace;
+    if (win.CSSStyleSheet.prototype.replace) {
+        replace = win.CSSStyleSheet.prototype.replace;
+        win.CSSStyleSheet.prototype.replace = new Proxy(replace, {
+            apply: callbackWrapper((target, thisArg, argumentsList) => {
+                const [text] = argumentsList;
+                const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+                if ((id && id !== -1) || (styleId && styleId !== -1)) {
+                    styleSheetRuleCb({
+                        id,
+                        styleId,
+                        replace: text,
+                    });
+                }
+                return target.apply(thisArg, argumentsList);
+            }),
+        });
+    }
+    let replaceSync;
+    if (win.CSSStyleSheet.prototype.replaceSync) {
+        replaceSync = win.CSSStyleSheet.prototype.replaceSync;
+        win.CSSStyleSheet.prototype.replaceSync = new Proxy(replaceSync, {
+            apply: callbackWrapper((target, thisArg, argumentsList) => {
+                const [text] = argumentsList;
+                const { id, styleId } = getIdAndStyleId(thisArg, mirror, stylesheetManager.styleMirror);
+                if ((id && id !== -1) || (styleId && styleId !== -1)) {
+                    styleSheetRuleCb({
+                        id,
+                        styleId,
+                        replaceSync: text,
+                    });
+                }
+                return target.apply(thisArg, argumentsList);
+            }),
+        });
+    }
     const supportedNestedCSSRuleTypes = {};
     if (canMonkeyPatchNestedCSSRule('CSSGroupingRule')) {
         supportedNestedCSSRuleTypes.CSSGroupingRule = win.CSSGroupingRule;
@@ -15106,10 +16104,11 @@ function initStyleSheetObserver({ styleSheetRuleCb, mirror }, { win }) {
         type.prototype.insertRule = new Proxy(unmodifiedFunctions[typeKey].insertRule, {
             apply: callbackWrapper((target, thisArg, argumentsList) => {
                 const [rule, index] = argumentsList;
-                const id = mirror.getId(thisArg.parentStyleSheet.ownerNode);
-                if (id !== -1) {
+                const { id, styleId } = getIdAndStyleId(thisArg.parentStyleSheet, mirror, stylesheetManager.styleMirror);
+                if ((id && id !== -1) || (styleId && styleId !== -1)) {
                     styleSheetRuleCb({
                         id,
+                        styleId,
                         adds: [
                             {
                                 rule,
@@ -15127,10 +16126,11 @@ function initStyleSheetObserver({ styleSheetRuleCb, mirror }, { win }) {
         type.prototype.deleteRule = new Proxy(unmodifiedFunctions[typeKey].deleteRule, {
             apply: callbackWrapper((target, thisArg, argumentsList) => {
                 const [index] = argumentsList;
-                const id = mirror.getId(thisArg.parentStyleSheet.ownerNode);
-                if (id !== -1) {
+                const { id, styleId } = getIdAndStyleId(thisArg.parentStyleSheet, mirror, stylesheetManager.styleMirror);
+                if ((id && id !== -1) || (styleId && styleId !== -1)) {
                     styleSheetRuleCb({
                         id,
+                        styleId,
                         removes: [
                             { index: [...getNestedCSSRulePositions(thisArg), index] },
                         ],
@@ -15143,22 +16143,76 @@ function initStyleSheetObserver({ styleSheetRuleCb, mirror }, { win }) {
     return callbackWrapper(() => {
         win.CSSStyleSheet.prototype.insertRule = insertRule;
         win.CSSStyleSheet.prototype.deleteRule = deleteRule;
+        replace && (win.CSSStyleSheet.prototype.replace = replace);
+        replaceSync && (win.CSSStyleSheet.prototype.replaceSync = replaceSync);
         Object.entries(supportedNestedCSSRuleTypes).forEach(([typeKey, type]) => {
             type.prototype.insertRule = unmodifiedFunctions[typeKey].insertRule;
             type.prototype.deleteRule = unmodifiedFunctions[typeKey].deleteRule;
         });
     });
 }
-function initStyleDeclarationObserver({ styleDeclarationCb, mirror }, { win }) {
+function initAdoptedStyleSheetObserver({ mirror, stylesheetManager, }, host) {
+    var _a, _b, _c;
+    let hostId = null;
+    if (host.nodeName === '#document')
+        hostId = mirror.getId(host);
+    else
+        hostId = mirror.getId(host.host);
+    const patchTarget = host.nodeName === '#document'
+        ? (_a = host.defaultView) === null || _a === void 0 ? void 0 : _a.Document
+        : (_c = (_b = host.ownerDocument) === null || _b === void 0 ? void 0 : _b.defaultView) === null || _c === void 0 ? void 0 : _c.ShadowRoot;
+    const originalPropertyDescriptor = (patchTarget === null || patchTarget === void 0 ? void 0 : patchTarget.prototype)
+        ? Object.getOwnPropertyDescriptor(patchTarget === null || patchTarget === void 0 ? void 0 : patchTarget.prototype, 'adoptedStyleSheets')
+        : undefined;
+    if (hostId === null ||
+        hostId === -1 ||
+        !patchTarget ||
+        !originalPropertyDescriptor)
+        return () => {
+        };
+    Object.defineProperty(host, 'adoptedStyleSheets', {
+        configurable: originalPropertyDescriptor.configurable,
+        enumerable: originalPropertyDescriptor.enumerable,
+        get() {
+            var _a;
+            return (_a = originalPropertyDescriptor.get) === null || _a === void 0 ? void 0 : _a.call(this);
+        },
+        set(sheets) {
+            var _a;
+            const result = (_a = originalPropertyDescriptor.set) === null || _a === void 0 ? void 0 : _a.call(this, sheets);
+            if (hostId !== null && hostId !== -1) {
+                try {
+                    stylesheetManager.adoptStyleSheets(sheets, hostId);
+                }
+                catch (e) {
+                }
+            }
+            return result;
+        },
+    });
+    return callbackWrapper(() => {
+        Object.defineProperty(host, 'adoptedStyleSheets', {
+            configurable: originalPropertyDescriptor.configurable,
+            enumerable: originalPropertyDescriptor.enumerable,
+            get: originalPropertyDescriptor.get,
+            set: originalPropertyDescriptor.set,
+        });
+    });
+}
+function initStyleDeclarationObserver({ styleDeclarationCb, mirror, ignoreCSSAttributes, stylesheetManager, }, { win }) {
     const setProperty = win.CSSStyleDeclaration.prototype.setProperty;
     win.CSSStyleDeclaration.prototype.setProperty = new Proxy(setProperty, {
         apply: callbackWrapper((target, thisArg, argumentsList) => {
-            var _a, _b;
+            var _a;
             const [property, value, priority] = argumentsList;
-            const id = mirror.getId((_b = (_a = thisArg.parentRule) === null || _a === void 0 ? void 0 : _a.parentStyleSheet) === null || _b === void 0 ? void 0 : _b.ownerNode);
-            if (id !== -1) {
+            if (ignoreCSSAttributes.has(property)) {
+                return setProperty.apply(thisArg, [property, value, priority]);
+            }
+            const { id, styleId } = getIdAndStyleId((_a = thisArg.parentRule) === null || _a === void 0 ? void 0 : _a.parentStyleSheet, mirror, stylesheetManager.styleMirror);
+            if ((id && id !== -1) || (styleId && styleId !== -1)) {
                 styleDeclarationCb({
                     id,
+                    styleId,
                     set: {
                         property,
                         value,
@@ -15173,12 +16227,16 @@ function initStyleDeclarationObserver({ styleDeclarationCb, mirror }, { win }) {
     const removeProperty = win.CSSStyleDeclaration.prototype.removeProperty;
     win.CSSStyleDeclaration.prototype.removeProperty = new Proxy(removeProperty, {
         apply: callbackWrapper((target, thisArg, argumentsList) => {
-            var _a, _b;
+            var _a;
             const [property] = argumentsList;
-            const id = mirror.getId((_b = (_a = thisArg.parentRule) === null || _a === void 0 ? void 0 : _a.parentStyleSheet) === null || _b === void 0 ? void 0 : _b.ownerNode);
-            if (id !== -1) {
+            if (ignoreCSSAttributes.has(property)) {
+                return removeProperty.apply(thisArg, [property]);
+            }
+            const { id, styleId } = getIdAndStyleId((_a = thisArg.parentRule) === null || _a === void 0 ? void 0 : _a.parentStyleSheet, mirror, stylesheetManager.styleMirror);
+            if ((id && id !== -1) || (styleId && styleId !== -1)) {
                 styleDeclarationCb({
                     id,
+                    styleId,
                     remove: {
                         property,
                     },
@@ -15193,27 +16251,29 @@ function initStyleDeclarationObserver({ styleDeclarationCb, mirror }, { win }) {
         win.CSSStyleDeclaration.prototype.removeProperty = removeProperty;
     });
 }
-function initMediaInteractionObserver({ mediaInteractionCb, blockClass, blockSelector, unblockSelector, mirror, sampling, }) {
-    const handler = (type) => throttle$1(callbackWrapper((event) => {
+function initMediaInteractionObserver({ mediaInteractionCb, blockClass, blockSelector, unblockSelector, mirror, sampling, doc, }) {
+    const handler = callbackWrapper((type) => throttle$1(callbackWrapper((event) => {
         const target = getEventTarget(event);
         if (!target ||
-            isBlocked(target, blockClass, blockSelector, unblockSelector)) {
+            isBlocked(target, blockClass, blockSelector, unblockSelector, true)) {
             return;
         }
-        const { currentTime, volume, muted } = target;
+        const { currentTime, volume, muted, playbackRate } = target;
         mediaInteractionCb({
             type,
             id: mirror.getId(target),
             currentTime,
             volume,
             muted,
+            playbackRate,
         });
-    }), sampling.media || 500);
+    }), sampling.media || 500));
     const handlers = [
-        on('play', handler(0)),
-        on('pause', handler(1)),
-        on('seeked', handler(2)),
-        on('volumechange', handler(3)),
+        on('play', handler(0), doc),
+        on('pause', handler(1), doc),
+        on('seeked', handler(2), doc),
+        on('volumechange', handler(3), doc),
+        on('ratechange', handler(4), doc),
     ];
     return callbackWrapper(() => {
         handlers.forEach((h) => h());
@@ -15222,7 +16282,8 @@ function initMediaInteractionObserver({ mediaInteractionCb, blockClass, blockSel
 function initFontObserver({ fontCb, doc }) {
     const win = doc.defaultView;
     if (!win) {
-        return () => { };
+        return () => {
+        };
     }
     const handlers = [];
     const fontMap = new WeakMap();
@@ -15235,20 +16296,19 @@ function initFontObserver({ fontCb, doc }) {
             descriptors,
             fontSource: typeof source === 'string'
                 ? source
-                :
-                    JSON.stringify(Array.from(new Uint8Array(source))),
+                : JSON.stringify(Array.from(new Uint8Array(source))),
         });
         return fontFace;
     };
     const restoreHandler = patch(doc.fonts, 'add', function (original) {
         return function (fontFace) {
-            setTimeout(() => {
+            setTimeout(callbackWrapper(() => {
                 const p = fontMap.get(fontFace);
                 if (p) {
                     fontCb(p);
                     fontMap.delete(fontFace);
                 }
-            }, 0);
+            }), 0);
             return original.apply(this, [fontFace]);
         };
     });
@@ -15260,8 +16320,59 @@ function initFontObserver({ fontCb, doc }) {
         handlers.forEach((h) => h());
     });
 }
+function initSelectionObserver(param) {
+    const { doc, mirror, blockClass, blockSelector, unblockSelector, selectionCb, } = param;
+    let collapsed = true;
+    const updateSelection = callbackWrapper(() => {
+        const selection = doc.getSelection();
+        if (!selection || (collapsed && (selection === null || selection === void 0 ? void 0 : selection.isCollapsed)))
+            return;
+        collapsed = selection.isCollapsed || false;
+        const ranges = [];
+        const count = selection.rangeCount || 0;
+        for (let i = 0; i < count; i++) {
+            const range = selection.getRangeAt(i);
+            const { startContainer, startOffset, endContainer, endOffset } = range;
+            const blocked = isBlocked(startContainer, blockClass, blockSelector, unblockSelector, true) ||
+                isBlocked(endContainer, blockClass, blockSelector, unblockSelector, true);
+            if (blocked)
+                continue;
+            ranges.push({
+                start: mirror.getId(startContainer),
+                startOffset,
+                end: mirror.getId(endContainer),
+                endOffset,
+            });
+        }
+        selectionCb({ ranges });
+    });
+    updateSelection();
+    return on('selectionchange', updateSelection);
+}
+function initCustomElementObserver({ doc, customElementCb, }) {
+    const win = doc.defaultView;
+    if (!win || !win.customElements) {
+        return () => {
+        };
+    }
+    const restoreHandler = patch(win.customElements, 'define', function (original) {
+        return function (name, constructor, options) {
+            try {
+                customElementCb({
+                    define: {
+                        name,
+                    },
+                });
+            }
+            catch (e) {
+            }
+            return original.apply(this, [name, constructor, options]);
+        };
+    });
+    return restoreHandler;
+}
 function mergeHooks(o, hooks) {
-    const { mutationCb, mousemoveCb, mouseInteractionCb, scrollCb, viewportResizeCb, inputCb, mediaInteractionCb, styleSheetRuleCb, styleDeclarationCb, canvasMutationCb, fontCb, } = o;
+    const { mutationCb, mousemoveCb, mouseInteractionCb, scrollCb, viewportResizeCb, inputCb, mediaInteractionCb, styleSheetRuleCb, styleDeclarationCb, canvasMutationCb, fontCb, selectionCb, customElementCb, } = o;
     o.mutationCb = (...p) => {
         if (hooks.mutation) {
             hooks.mutation(...p);
@@ -15328,25 +16439,46 @@ function mergeHooks(o, hooks) {
         }
         fontCb(...p);
     };
+    o.selectionCb = (...p) => {
+        if (hooks.selection) {
+            hooks.selection(...p);
+        }
+        selectionCb(...p);
+    };
+    o.customElementCb = (...c) => {
+        if (hooks.customElement) {
+            hooks.customElement(...c);
+        }
+        customElementCb(...c);
+    };
 }
 function initObservers(o, hooks = {}) {
     const currentWindow = o.doc.defaultView;
     if (!currentWindow) {
-        return () => { };
+        return () => {
+        };
     }
     mergeHooks(o, hooks);
     const mutationObserver = initMutationObserver(o, o.doc);
     const mousemoveHandler = initMoveObserver(o);
     const mouseInteractionHandler = initMouseInteractionObserver(o);
     const scrollHandler = initScrollObserver(o);
-    const viewportResizeHandler = initViewportResizeObserver(o);
+    const viewportResizeHandler = initViewportResizeObserver(o, {
+        win: currentWindow,
+    });
     const inputHandler = initInputObserver(o);
     const mediaInteractionHandler = initMediaInteractionObserver(o);
     const styleSheetObserver = initStyleSheetObserver(o, { win: currentWindow });
+    const adoptedStyleSheetObserver = initAdoptedStyleSheetObserver(o, o.doc);
     const styleDeclarationObserver = initStyleDeclarationObserver(o, {
         win: currentWindow,
     });
-    const fontObserver = o.collectFonts ? initFontObserver(o) : () => { };
+    const fontObserver = o.collectFonts
+        ? initFontObserver(o)
+        : () => {
+        };
+    const selectionObserver = initSelectionObserver(o);
+    const customElementObserver = initCustomElementObserver(o);
     const pluginHandlers = [];
     for (const plugin of o.plugins) {
         pluginHandlers.push(plugin.observer(plugin.callback, currentWindow, plugin.options));
@@ -15360,13 +16492,12 @@ function initObservers(o, hooks = {}) {
         viewportResizeHandler();
         inputHandler();
         mediaInteractionHandler();
-        try {
-            styleSheetObserver();
-            styleDeclarationObserver();
-        }
-        catch (e) {
-        }
+        styleSheetObserver();
+        adoptedStyleSheetObserver();
+        styleDeclarationObserver();
         fontObserver();
+        selectionObserver();
+        customElementObserver();
         pluginHandlers.forEach((h) => h());
     });
 }
@@ -15380,13 +16511,100 @@ function canMonkeyPatchNestedCSSRule(prop) {
         'deleteRule' in window[prop].prototype);
 }
 
+class CrossOriginIframeMirror {
+    constructor(generateIdFn) {
+        this.generateIdFn = generateIdFn;
+        this.iframeIdToRemoteIdMap = new WeakMap();
+        this.iframeRemoteIdToIdMap = new WeakMap();
+    }
+    getId(iframe, remoteId, idToRemoteMap, remoteToIdMap) {
+        const idToRemoteIdMap = idToRemoteMap || this.getIdToRemoteIdMap(iframe);
+        const remoteIdToIdMap = remoteToIdMap || this.getRemoteIdToIdMap(iframe);
+        let id = idToRemoteIdMap.get(remoteId);
+        if (!id) {
+            id = this.generateIdFn();
+            idToRemoteIdMap.set(remoteId, id);
+            remoteIdToIdMap.set(id, remoteId);
+        }
+        return id;
+    }
+    getIds(iframe, remoteId) {
+        const idToRemoteIdMap = this.getIdToRemoteIdMap(iframe);
+        const remoteIdToIdMap = this.getRemoteIdToIdMap(iframe);
+        return remoteId.map((id) => this.getId(iframe, id, idToRemoteIdMap, remoteIdToIdMap));
+    }
+    getRemoteId(iframe, id, map) {
+        const remoteIdToIdMap = map || this.getRemoteIdToIdMap(iframe);
+        if (typeof id !== 'number')
+            return id;
+        const remoteId = remoteIdToIdMap.get(id);
+        if (!remoteId)
+            return -1;
+        return remoteId;
+    }
+    getRemoteIds(iframe, ids) {
+        const remoteIdToIdMap = this.getRemoteIdToIdMap(iframe);
+        return ids.map((id) => this.getRemoteId(iframe, id, remoteIdToIdMap));
+    }
+    reset(iframe) {
+        if (!iframe) {
+            this.iframeIdToRemoteIdMap = new WeakMap();
+            this.iframeRemoteIdToIdMap = new WeakMap();
+            return;
+        }
+        this.iframeIdToRemoteIdMap.delete(iframe);
+        this.iframeRemoteIdToIdMap.delete(iframe);
+    }
+    getIdToRemoteIdMap(iframe) {
+        let idToRemoteIdMap = this.iframeIdToRemoteIdMap.get(iframe);
+        if (!idToRemoteIdMap) {
+            idToRemoteIdMap = new Map();
+            this.iframeIdToRemoteIdMap.set(iframe, idToRemoteIdMap);
+        }
+        return idToRemoteIdMap;
+    }
+    getRemoteIdToIdMap(iframe) {
+        let remoteIdToIdMap = this.iframeRemoteIdToIdMap.get(iframe);
+        if (!remoteIdToIdMap) {
+            remoteIdToIdMap = new Map();
+            this.iframeRemoteIdToIdMap.set(iframe, remoteIdToIdMap);
+        }
+        return remoteIdToIdMap;
+    }
+}
+
+class IframeManagerNoop {
+    constructor() {
+        this.crossOriginIframeMirror = new CrossOriginIframeMirror(genId);
+        this.crossOriginIframeRootIdMap = new WeakMap();
+    }
+    addIframe() {
+    }
+    addLoadListener() {
+    }
+    attachIframe() {
+    }
+}
 class IframeManager {
     constructor(options) {
         this.iframes = new WeakMap();
+        this.crossOriginIframeMap = new WeakMap();
+        this.crossOriginIframeMirror = new CrossOriginIframeMirror(genId);
+        this.crossOriginIframeRootIdMap = new WeakMap();
         this.mutationCb = options.mutationCb;
+        this.wrappedEmit = options.wrappedEmit;
+        this.stylesheetManager = options.stylesheetManager;
+        this.recordCrossOriginIframes = options.recordCrossOriginIframes;
+        this.crossOriginIframeStyleMirror = new CrossOriginIframeMirror(this.stylesheetManager.styleMirror.generateId.bind(this.stylesheetManager.styleMirror));
+        this.mirror = options.mirror;
+        if (this.recordCrossOriginIframes) {
+            window.addEventListener('message', this.handleMessage.bind(this));
+        }
     }
     addIframe(iframeEl) {
         this.iframes.set(iframeEl, true);
+        if (iframeEl.contentWindow)
+            this.crossOriginIframeMap.set(iframeEl.contentWindow, iframeEl);
     }
     addLoadListener(cb) {
         this.loadListener = cb;
@@ -15396,7 +16614,7 @@ class IframeManager {
         this.mutationCb({
             adds: [
                 {
-                    parentId: iframeEl.__sn.id,
+                    parentId: this.mirror.getId(iframeEl),
                     nextId: null,
                     node: childSn,
                 },
@@ -15407,49 +16625,249 @@ class IframeManager {
             isAttachIframe: true,
         });
         (_a = this.loadListener) === null || _a === void 0 ? void 0 : _a.call(this, iframeEl);
+        if (iframeEl.contentDocument &&
+            iframeEl.contentDocument.adoptedStyleSheets &&
+            iframeEl.contentDocument.adoptedStyleSheets.length > 0)
+            this.stylesheetManager.adoptStyleSheets(iframeEl.contentDocument.adoptedStyleSheets, this.mirror.getId(iframeEl.contentDocument));
+    }
+    handleMessage(message) {
+        const crossOriginMessageEvent = message;
+        if (crossOriginMessageEvent.data.type !== 'rrweb' ||
+            crossOriginMessageEvent.origin !== crossOriginMessageEvent.data.origin)
+            return;
+        const iframeSourceWindow = message.source;
+        if (!iframeSourceWindow)
+            return;
+        const iframeEl = this.crossOriginIframeMap.get(message.source);
+        if (!iframeEl)
+            return;
+        const transformedEvent = this.transformCrossOriginEvent(iframeEl, crossOriginMessageEvent.data.event);
+        if (transformedEvent)
+            this.wrappedEmit(transformedEvent, crossOriginMessageEvent.data.isCheckout);
+    }
+    transformCrossOriginEvent(iframeEl, e) {
+        var _a;
+        switch (e.type) {
+            case EventType.FullSnapshot: {
+                this.crossOriginIframeMirror.reset(iframeEl);
+                this.crossOriginIframeStyleMirror.reset(iframeEl);
+                this.replaceIdOnNode(e.data.node, iframeEl);
+                const rootId = e.data.node.id;
+                this.crossOriginIframeRootIdMap.set(iframeEl, rootId);
+                this.patchRootIdOnNode(e.data.node, rootId);
+                return {
+                    timestamp: e.timestamp,
+                    type: EventType.IncrementalSnapshot,
+                    data: {
+                        source: IncrementalSource.Mutation,
+                        adds: [
+                            {
+                                parentId: this.mirror.getId(iframeEl),
+                                nextId: null,
+                                node: e.data.node,
+                            },
+                        ],
+                        removes: [],
+                        texts: [],
+                        attributes: [],
+                        isAttachIframe: true,
+                    },
+                };
+            }
+            case EventType.Meta:
+            case EventType.Load:
+            case EventType.DomContentLoaded: {
+                return false;
+            }
+            case EventType.Plugin: {
+                return e;
+            }
+            case EventType.Custom: {
+                this.replaceIds(e.data.payload, iframeEl, ['id', 'parentId', 'previousId', 'nextId']);
+                return e;
+            }
+            case EventType.IncrementalSnapshot: {
+                switch (e.data.source) {
+                    case IncrementalSource.Mutation: {
+                        e.data.adds.forEach((n) => {
+                            this.replaceIds(n, iframeEl, [
+                                'parentId',
+                                'nextId',
+                                'previousId',
+                            ]);
+                            this.replaceIdOnNode(n.node, iframeEl);
+                            const rootId = this.crossOriginIframeRootIdMap.get(iframeEl);
+                            rootId && this.patchRootIdOnNode(n.node, rootId);
+                        });
+                        e.data.removes.forEach((n) => {
+                            this.replaceIds(n, iframeEl, ['parentId', 'id']);
+                        });
+                        e.data.attributes.forEach((n) => {
+                            this.replaceIds(n, iframeEl, ['id']);
+                        });
+                        e.data.texts.forEach((n) => {
+                            this.replaceIds(n, iframeEl, ['id']);
+                        });
+                        return e;
+                    }
+                    case IncrementalSource.Drag:
+                    case IncrementalSource.TouchMove:
+                    case IncrementalSource.MouseMove: {
+                        e.data.positions.forEach((p) => {
+                            this.replaceIds(p, iframeEl, ['id']);
+                        });
+                        return e;
+                    }
+                    case IncrementalSource.ViewportResize: {
+                        return false;
+                    }
+                    case IncrementalSource.MediaInteraction:
+                    case IncrementalSource.MouseInteraction:
+                    case IncrementalSource.Scroll:
+                    case IncrementalSource.CanvasMutation:
+                    case IncrementalSource.Input: {
+                        this.replaceIds(e.data, iframeEl, ['id']);
+                        return e;
+                    }
+                    case IncrementalSource.StyleSheetRule:
+                    case IncrementalSource.StyleDeclaration: {
+                        this.replaceIds(e.data, iframeEl, ['id']);
+                        this.replaceStyleIds(e.data, iframeEl, ['styleId']);
+                        return e;
+                    }
+                    case IncrementalSource.Font: {
+                        return e;
+                    }
+                    case IncrementalSource.Selection: {
+                        e.data.ranges.forEach((range) => {
+                            this.replaceIds(range, iframeEl, ['start', 'end']);
+                        });
+                        return e;
+                    }
+                    case IncrementalSource.AdoptedStyleSheet: {
+                        this.replaceIds(e.data, iframeEl, ['id']);
+                        this.replaceStyleIds(e.data, iframeEl, ['styleIds']);
+                        (_a = e.data.styles) === null || _a === void 0 ? void 0 : _a.forEach((style) => {
+                            this.replaceStyleIds(style, iframeEl, ['styleId']);
+                        });
+                        return e;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    replace(iframeMirror, obj, iframeEl, keys) {
+        for (const key of keys) {
+            if (!Array.isArray(obj[key]) && typeof obj[key] !== 'number')
+                continue;
+            if (Array.isArray(obj[key])) {
+                obj[key] = iframeMirror.getIds(iframeEl, obj[key]);
+            }
+            else {
+                obj[key] = iframeMirror.getId(iframeEl, obj[key]);
+            }
+        }
+        return obj;
+    }
+    replaceIds(obj, iframeEl, keys) {
+        return this.replace(this.crossOriginIframeMirror, obj, iframeEl, keys);
+    }
+    replaceStyleIds(obj, iframeEl, keys) {
+        return this.replace(this.crossOriginIframeStyleMirror, obj, iframeEl, keys);
+    }
+    replaceIdOnNode(node, iframeEl) {
+        this.replaceIds(node, iframeEl, ['id', 'rootId']);
+        if ('childNodes' in node) {
+            node.childNodes.forEach((child) => {
+                this.replaceIdOnNode(child, iframeEl);
+            });
+        }
+    }
+    patchRootIdOnNode(node, rootId) {
+        if (node.type !== NodeType$1.Document && !node.rootId)
+            node.rootId = rootId;
+        if ('childNodes' in node) {
+            node.childNodes.forEach((child) => {
+                this.patchRootIdOnNode(child, rootId);
+            });
+        }
     }
 }
 
+class ShadowDomManagerNoop {
+    init() {
+    }
+    addShadowRoot() {
+    }
+    observeAttachShadow() {
+    }
+    reset() {
+    }
+}
 class ShadowDomManager {
     constructor(options) {
-        this.restorePatches = [];
+        this.shadowDoms = new WeakSet();
+        this.restoreHandlers = [];
         this.mutationCb = options.mutationCb;
         this.scrollCb = options.scrollCb;
         this.bypassOptions = options.bypassOptions;
         this.mirror = options.mirror;
+        this.init();
+    }
+    init() {
+        this.reset();
+        this.patchAttachShadow(Element, document);
+    }
+    addShadowRoot(shadowRoot, doc) {
+        if (!isNativeShadowDom(shadowRoot))
+            return;
+        if (this.shadowDoms.has(shadowRoot))
+            return;
+        this.shadowDoms.add(shadowRoot);
+        const observer = initMutationObserver(Object.assign(Object.assign({}, this.bypassOptions), { doc, mutationCb: this.mutationCb, mirror: this.mirror, shadowDomManager: this }), shadowRoot);
+        this.restoreHandlers.push(() => observer.disconnect());
+        this.restoreHandlers.push(initScrollObserver(Object.assign(Object.assign({}, this.bypassOptions), { scrollCb: this.scrollCb, doc: shadowRoot, mirror: this.mirror })));
+        setTimeout(() => {
+            if (shadowRoot.adoptedStyleSheets &&
+                shadowRoot.adoptedStyleSheets.length > 0)
+                this.bypassOptions.stylesheetManager.adoptStyleSheets(shadowRoot.adoptedStyleSheets, this.mirror.getId(shadowRoot.host));
+            this.restoreHandlers.push(initAdoptedStyleSheetObserver({
+                mirror: this.mirror,
+                stylesheetManager: this.bypassOptions.stylesheetManager,
+            }, shadowRoot));
+        }, 0);
+    }
+    observeAttachShadow(iframeElement) {
+        if (!iframeElement.contentWindow || !iframeElement.contentDocument)
+            return;
+        this.patchAttachShadow(iframeElement.contentWindow.Element, iframeElement.contentDocument);
+    }
+    patchAttachShadow(element, doc) {
         const manager = this;
-        this.restorePatches.push(patch(HTMLElement.prototype, 'attachShadow', function (original) {
-            return function () {
-                const shadowRoot = original.apply(this, arguments);
-                if (this.shadowRoot)
-                    manager.addShadowRoot(this.shadowRoot, this.ownerDocument);
+        this.restoreHandlers.push(patch(element.prototype, 'attachShadow', function (original) {
+            return function (option) {
+                const shadowRoot = original.call(this, option);
+                if (this.shadowRoot && inDom(this))
+                    manager.addShadowRoot(this.shadowRoot, doc);
                 return shadowRoot;
             };
         }));
     }
-    addShadowRoot(shadowRoot, doc) {
-        initMutationObserver(Object.assign(Object.assign({}, this.bypassOptions), { doc, mutationCb: this.mutationCb, mirror: this.mirror, shadowDomManager: this }), shadowRoot);
-        initScrollObserver(Object.assign(Object.assign({}, this.bypassOptions), { scrollCb: this.scrollCb, doc: shadowRoot, mirror: this.mirror }));
-    }
-    observeAttachShadow(iframeElement) {
-        if (iframeElement.contentWindow) {
-            const manager = this;
-            this.restorePatches.push(patch(iframeElement.contentWindow.HTMLElement.prototype, 'attachShadow', function (original) {
-                return function () {
-                    const shadowRoot = original.apply(this, arguments);
-                    if (this.shadowRoot)
-                        manager.addShadowRoot(this.shadowRoot, iframeElement.contentDocument);
-                    return shadowRoot;
-                };
-            }));
-        }
-    }
     reset() {
-        this.restorePatches.forEach((restorePatch) => restorePatch());
+        this.restoreHandlers.forEach((handler) => {
+            try {
+                handler();
+            }
+            catch (e) {
+            }
+        });
+        this.restoreHandlers = [];
+        this.shadowDoms = new WeakSet();
     }
 }
 
-/******************************************************************************
+/*! *****************************************************************************
 Copyright (c) Microsoft Corporation.
 
 Permission to use, copy, modify, and/or distribute this software for any
@@ -15476,85 +16894,19 @@ function __rest(s, e) {
     return t;
 }
 
-function initCanvas2DMutationObserver(cb, win, blockClass, unblockSelector, blockSelector, mirror) {
-    const handlers = [];
-    const props2D = Object.getOwnPropertyNames(win.CanvasRenderingContext2D.prototype);
-    for (const prop of props2D) {
-        try {
-            if (typeof win.CanvasRenderingContext2D.prototype[prop] !== 'function') {
-                continue;
-            }
-            const restoreHandler = patch(win.CanvasRenderingContext2D.prototype, prop, function (original) {
-                return function (...args) {
-                    if (!isBlocked(this.canvas, blockClass, blockSelector, unblockSelector)) {
-                        setTimeout(() => {
-                            const recordArgs = [...args];
-                            if (prop === 'drawImage') {
-                                if (recordArgs[0] &&
-                                    recordArgs[0] instanceof HTMLCanvasElement) {
-                                    const canvas = recordArgs[0];
-                                    const ctx = canvas.getContext('2d');
-                                    let imgd = ctx === null || ctx === void 0 ? void 0 : ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                    let pix = imgd === null || imgd === void 0 ? void 0 : imgd.data;
-                                    recordArgs[0] = JSON.stringify(pix);
-                                }
-                            }
-                            cb(this.canvas, {
-                                type: CanvasContext['2D'],
-                                property: prop,
-                                args: recordArgs,
-                            });
-                        }, 0);
-                    }
-                    return original.apply(this, args);
-                };
-            });
-            handlers.push(restoreHandler);
-        }
-        catch (_a) {
-            const hookHandler = hookSetter(win.CanvasRenderingContext2D.prototype, prop, {
-                set(v) {
-                    cb(this.canvas, {
-                        type: CanvasContext['2D'],
-                        property: prop,
-                        args: [v],
-                        setter: true,
-                    });
-                },
-            });
-            handlers.push(hookHandler);
-        }
-    }
-    return () => {
-        handlers.forEach((h) => h());
-    };
-}
-
-function initCanvasContextObserver(win, blockClass, blockSelector, unblockSelector) {
-    const handlers = [];
-    try {
-        const restoreHandler = patch(win.HTMLCanvasElement.prototype, 'getContext', function (original) {
-            return function (contextType, ...args) {
-                if (!isBlocked(this, blockClass, blockSelector, unblockSelector)) {
-                    if (!('__context' in this))
-                        this.__context = contextType;
-                }
-                return original.apply(this, [contextType, ...args]);
-            };
-        });
-        handlers.push(restoreHandler);
-    }
-    catch (_a) {
-        console.error('failed to patch HTMLCanvasElement.prototype.getContext');
-    }
-    return () => {
-        handlers.forEach((h) => h());
-    };
+function __awaiter(thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
 }
 
 /*
- * base64-arraybuffer 1.0.2 <https://github.com/niklasvh/base64-arraybuffer>
- * Copyright (c) 2022 Niklas von Hertzen <https://hertzen.com>
+ * base64-arraybuffer 1.0.1 <https://github.com/niklasvh/base64-arraybuffer>
+ * Copyright (c) 2021 Niklas von Hertzen <https://hertzen.com>
  * Released under MIT License
  */
 var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -15580,12 +16932,12 @@ var encode = function (arraybuffer) {
     return base64;
 };
 
-const webGLVarMap = new Map();
+const canvasVarMap = new Map();
 function variableListFor(ctx, ctor) {
-    let contextMap = webGLVarMap.get(ctx);
+    let contextMap = canvasVarMap.get(ctx);
     if (!contextMap) {
         contextMap = new Map();
-        webGLVarMap.set(ctx, contextMap);
+        canvasVarMap.set(ctx, contextMap);
     }
     if (!contextMap.has(ctor)) {
         contextMap.set(ctor, []);
@@ -15654,6 +17006,14 @@ function serializeArg(value, win, ctx) {
             src,
         };
     }
+    else if (value instanceof HTMLCanvasElement) {
+        const name = 'HTMLImageElement';
+        const src = value.toDataURL();
+        return {
+            rr_type: name,
+            src,
+        };
+    }
     else if (value instanceof ImageData) {
         const name = value.constructor.name;
         return {
@@ -15692,10 +17052,102 @@ const isInstanceOfWebGLObject = (value, win) => {
     return Boolean(supportedWebGLConstructorNames.find((name) => value instanceof win[name]));
 };
 
-function patchGLPrototype(prototype, type, cb, blockClass, unblockSelector, blockSelector, mirror, win) {
+function initCanvas2DMutationObserver(cb, win, blockClass, blockSelector, unblockSelector) {
+    const handlers = [];
+    const props2D = Object.getOwnPropertyNames(win.CanvasRenderingContext2D.prototype);
+    for (const prop of props2D) {
+        try {
+            if (typeof win.CanvasRenderingContext2D.prototype[prop] !== 'function') {
+                continue;
+            }
+            const restoreHandler = patch(win.CanvasRenderingContext2D.prototype, prop, function (original) {
+                return function (...args) {
+                    if (!isBlocked(this.canvas, blockClass, blockSelector, unblockSelector, true)) {
+                        setTimeout(() => {
+                            const recordArgs = serializeArgs([...args], win, this);
+                            cb(this.canvas, {
+                                type: CanvasContext['2D'],
+                                property: prop,
+                                args: recordArgs,
+                            });
+                        }, 0);
+                    }
+                    return original.apply(this, args);
+                };
+            });
+            handlers.push(restoreHandler);
+        }
+        catch (_a) {
+            const hookHandler = hookSetter(win.CanvasRenderingContext2D.prototype, prop, {
+                set(v) {
+                    cb(this.canvas, {
+                        type: CanvasContext['2D'],
+                        property: prop,
+                        args: [v],
+                        setter: true,
+                    });
+                },
+            });
+            handlers.push(hookHandler);
+        }
+    }
+    return () => {
+        handlers.forEach((h) => h());
+    };
+}
+
+function getNormalizedContextName(contextType) {
+    return contextType === 'experimental-webgl' ? 'webgl' : contextType;
+}
+function initCanvasContextObserver(win, blockClass, blockSelector, unblockSelector, setPreserveDrawingBufferToTrue) {
+    const handlers = [];
+    try {
+        const restoreHandler = patch(win.HTMLCanvasElement.prototype, 'getContext', function (original) {
+            return function (contextType, ...args) {
+                if (!isBlocked(this, blockClass, blockSelector, unblockSelector, true)) {
+                    const ctxName = getNormalizedContextName(contextType);
+                    if (!('__context' in this))
+                        this.__context = ctxName;
+                    if (setPreserveDrawingBufferToTrue &&
+                        ['webgl', 'webgl2'].includes(ctxName)) {
+                        if (args[0] && typeof args[0] === 'object') {
+                            const contextAttributes = args[0];
+                            if (!contextAttributes.preserveDrawingBuffer) {
+                                contextAttributes.preserveDrawingBuffer = true;
+                            }
+                        }
+                        else {
+                            args.splice(0, 1, {
+                                preserveDrawingBuffer: true,
+                            });
+                        }
+                    }
+                }
+                return original.apply(this, [contextType, ...args]);
+            };
+        });
+        handlers.push(restoreHandler);
+    }
+    catch (_a) {
+        console.error('failed to patch HTMLCanvasElement.prototype.getContext');
+    }
+    return () => {
+        handlers.forEach((h) => h());
+    };
+}
+
+function patchGLPrototype(prototype, type, cb, blockClass, blockSelector, unblockSelector, mirror, win) {
     const handlers = [];
     const props = Object.getOwnPropertyNames(prototype);
     for (const prop of props) {
+        if ([
+            'isContextLost',
+            'canvas',
+            'drawingBufferWidth',
+            'drawingBufferHeight',
+        ].includes(prop)) {
+            continue;
+        }
         try {
             if (typeof prototype[prop] !== 'function') {
                 continue;
@@ -15703,10 +17155,10 @@ function patchGLPrototype(prototype, type, cb, blockClass, unblockSelector, bloc
             const restoreHandler = patch(prototype, prop, function (original) {
                 return function (...args) {
                     const result = original.apply(this, args);
-                    saveWebGLVar(result, win, prototype);
-                    if (!isBlocked(this.canvas, blockClass, blockSelector, unblockSelector)) {
-                        const id = mirror.getId(this.canvas);
-                        const recordArgs = serializeArgs([...args], win, prototype);
+                    saveWebGLVar(result, win, this);
+                    if ('tagName' in this.canvas &&
+                        !isBlocked(this.canvas, blockClass, blockSelector, unblockSelector, true)) {
+                        const recordArgs = serializeArgs([...args], win, this);
                         const mutation = {
                             type,
                             property: prop,
@@ -15746,6 +17198,50 @@ function initCanvasWebGLMutationObserver(cb, win, blockClass, blockSelector, unb
     };
 }
 
+function decodeBase64(base64, enableUnicode) {
+    var binaryString = atob(base64);
+    if (enableUnicode) {
+        var binaryView = new Uint8Array(binaryString.length);
+        for (var i = 0, n = binaryString.length; i < n; ++i) {
+            binaryView[i] = binaryString.charCodeAt(i);
+        }
+        return String.fromCharCode.apply(null, new Uint16Array(binaryView.buffer));
+    }
+    return binaryString;
+}
+
+function createURL(base64, sourcemapArg, enableUnicodeArg) {
+    var sourcemap = sourcemapArg === undefined ? null : sourcemapArg;
+    var enableUnicode = enableUnicodeArg === undefined ? false : enableUnicodeArg;
+    var source = decodeBase64(base64, enableUnicode);
+    var start = source.indexOf('\n', 10) + 1;
+    var body = source.substring(start) + (sourcemap ? '\/\/# sourceMappingURL=' + sourcemap : '');
+    var blob = new Blob([body], { type: 'application/javascript' });
+    return URL.createObjectURL(blob);
+}
+
+function createBase64WorkerFactory(base64, sourcemapArg, enableUnicodeArg) {
+    var url;
+    return function WorkerFactory(options) {
+        url = url || createURL(base64, sourcemapArg, enableUnicodeArg);
+        return new Worker(url, options);
+    };
+}
+
+var WorkerFactory = createBase64WorkerFactory('Lyogcm9sbHVwLXBsdWdpbi13ZWItd29ya2VyLWxvYWRlciAqLwooZnVuY3Rpb24gKCkgewogICAgJ3VzZSBzdHJpY3QnOwoKICAgIC8qISAqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKg0KICAgIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLg0KDQogICAgUGVybWlzc2lvbiB0byB1c2UsIGNvcHksIG1vZGlmeSwgYW5kL29yIGRpc3RyaWJ1dGUgdGhpcyBzb2Z0d2FyZSBmb3IgYW55DQogICAgcHVycG9zZSB3aXRoIG9yIHdpdGhvdXQgZmVlIGlzIGhlcmVieSBncmFudGVkLg0KDQogICAgVEhFIFNPRlRXQVJFIElTIFBST1ZJREVEICJBUyBJUyIgQU5EIFRIRSBBVVRIT1IgRElTQ0xBSU1TIEFMTCBXQVJSQU5USUVTIFdJVEgNCiAgICBSRUdBUkQgVE8gVEhJUyBTT0ZUV0FSRSBJTkNMVURJTkcgQUxMIElNUExJRUQgV0FSUkFOVElFUyBPRiBNRVJDSEFOVEFCSUxJVFkNCiAgICBBTkQgRklUTkVTUy4gSU4gTk8gRVZFTlQgU0hBTEwgVEhFIEFVVEhPUiBCRSBMSUFCTEUgRk9SIEFOWSBTUEVDSUFMLCBESVJFQ1QsDQogICAgSU5ESVJFQ1QsIE9SIENPTlNFUVVFTlRJQUwgREFNQUdFUyBPUiBBTlkgREFNQUdFUyBXSEFUU09FVkVSIFJFU1VMVElORyBGUk9NDQogICAgTE9TUyBPRiBVU0UsIERBVEEgT1IgUFJPRklUUywgV0hFVEhFUiBJTiBBTiBBQ1RJT04gT0YgQ09OVFJBQ1QsIE5FR0xJR0VOQ0UgT1INCiAgICBPVEhFUiBUT1JUSU9VUyBBQ1RJT04sIEFSSVNJTkcgT1VUIE9GIE9SIElOIENPTk5FQ1RJT04gV0lUSCBUSEUgVVNFIE9SDQogICAgUEVSRk9STUFOQ0UgT0YgVEhJUyBTT0ZUV0FSRS4NCiAgICAqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiAqLw0KDQogICAgZnVuY3Rpb24gX19hd2FpdGVyKHRoaXNBcmcsIF9hcmd1bWVudHMsIFAsIGdlbmVyYXRvcikgew0KICAgICAgICBmdW5jdGlvbiBhZG9wdCh2YWx1ZSkgeyByZXR1cm4gdmFsdWUgaW5zdGFuY2VvZiBQID8gdmFsdWUgOiBuZXcgUChmdW5jdGlvbiAocmVzb2x2ZSkgeyByZXNvbHZlKHZhbHVlKTsgfSk7IH0NCiAgICAgICAgcmV0dXJuIG5ldyAoUCB8fCAoUCA9IFByb21pc2UpKShmdW5jdGlvbiAocmVzb2x2ZSwgcmVqZWN0KSB7DQogICAgICAgICAgICBmdW5jdGlvbiBmdWxmaWxsZWQodmFsdWUpIHsgdHJ5IHsgc3RlcChnZW5lcmF0b3IubmV4dCh2YWx1ZSkpOyB9IGNhdGNoIChlKSB7IHJlamVjdChlKTsgfSB9DQogICAgICAgICAgICBmdW5jdGlvbiByZWplY3RlZCh2YWx1ZSkgeyB0cnkgeyBzdGVwKGdlbmVyYXRvclsidGhyb3ciXSh2YWx1ZSkpOyB9IGNhdGNoIChlKSB7IHJlamVjdChlKTsgfSB9DQogICAgICAgICAgICBmdW5jdGlvbiBzdGVwKHJlc3VsdCkgeyByZXN1bHQuZG9uZSA/IHJlc29sdmUocmVzdWx0LnZhbHVlKSA6IGFkb3B0KHJlc3VsdC52YWx1ZSkudGhlbihmdWxmaWxsZWQsIHJlamVjdGVkKTsgfQ0KICAgICAgICAgICAgc3RlcCgoZ2VuZXJhdG9yID0gZ2VuZXJhdG9yLmFwcGx5KHRoaXNBcmcsIF9hcmd1bWVudHMgfHwgW10pKS5uZXh0KCkpOw0KICAgICAgICB9KTsNCiAgICB9CgogICAgLyoKICAgICAqIGJhc2U2NC1hcnJheWJ1ZmZlciAxLjAuMSA8aHR0cHM6Ly9naXRodWIuY29tL25pa2xhc3ZoL2Jhc2U2NC1hcnJheWJ1ZmZlcj4KICAgICAqIENvcHlyaWdodCAoYykgMjAyMSBOaWtsYXMgdm9uIEhlcnR6ZW4gPGh0dHBzOi8vaGVydHplbi5jb20+CiAgICAgKiBSZWxlYXNlZCB1bmRlciBNSVQgTGljZW5zZQogICAgICovCiAgICB2YXIgY2hhcnMgPSAnQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODkrLyc7CiAgICAvLyBVc2UgYSBsb29rdXAgdGFibGUgdG8gZmluZCB0aGUgaW5kZXguCiAgICB2YXIgbG9va3VwID0gdHlwZW9mIFVpbnQ4QXJyYXkgPT09ICd1bmRlZmluZWQnID8gW10gOiBuZXcgVWludDhBcnJheSgyNTYpOwogICAgZm9yICh2YXIgaSA9IDA7IGkgPCBjaGFycy5sZW5ndGg7IGkrKykgewogICAgICAgIGxvb2t1cFtjaGFycy5jaGFyQ29kZUF0KGkpXSA9IGk7CiAgICB9CiAgICB2YXIgZW5jb2RlID0gZnVuY3Rpb24gKGFycmF5YnVmZmVyKSB7CiAgICAgICAgdmFyIGJ5dGVzID0gbmV3IFVpbnQ4QXJyYXkoYXJyYXlidWZmZXIpLCBpLCBsZW4gPSBieXRlcy5sZW5ndGgsIGJhc2U2NCA9ICcnOwogICAgICAgIGZvciAoaSA9IDA7IGkgPCBsZW47IGkgKz0gMykgewogICAgICAgICAgICBiYXNlNjQgKz0gY2hhcnNbYnl0ZXNbaV0gPj4gMl07CiAgICAgICAgICAgIGJhc2U2NCArPSBjaGFyc1soKGJ5dGVzW2ldICYgMykgPDwgNCkgfCAoYnl0ZXNbaSArIDFdID4+IDQpXTsKICAgICAgICAgICAgYmFzZTY0ICs9IGNoYXJzWygoYnl0ZXNbaSArIDFdICYgMTUpIDw8IDIpIHwgKGJ5dGVzW2kgKyAyXSA+PiA2KV07CiAgICAgICAgICAgIGJhc2U2NCArPSBjaGFyc1tieXRlc1tpICsgMl0gJiA2M107CiAgICAgICAgfQogICAgICAgIGlmIChsZW4gJSAzID09PSAyKSB7CiAgICAgICAgICAgIGJhc2U2NCA9IGJhc2U2NC5zdWJzdHJpbmcoMCwgYmFzZTY0Lmxlbmd0aCAtIDEpICsgJz0nOwogICAgICAgIH0KICAgICAgICBlbHNlIGlmIChsZW4gJSAzID09PSAxKSB7CiAgICAgICAgICAgIGJhc2U2NCA9IGJhc2U2NC5zdWJzdHJpbmcoMCwgYmFzZTY0Lmxlbmd0aCAtIDIpICsgJz09JzsKICAgICAgICB9CiAgICAgICAgcmV0dXJuIGJhc2U2NDsKICAgIH07CgogICAgY29uc3QgbGFzdEJsb2JNYXAgPSBuZXcgTWFwKCk7DQogICAgY29uc3QgdHJhbnNwYXJlbnRCbG9iTWFwID0gbmV3IE1hcCgpOw0KICAgIGZ1bmN0aW9uIGdldFRyYW5zcGFyZW50QmxvYkZvcih3aWR0aCwgaGVpZ2h0LCBkYXRhVVJMT3B0aW9ucykgew0KICAgICAgICByZXR1cm4gX19hd2FpdGVyKHRoaXMsIHZvaWQgMCwgdm9pZCAwLCBmdW5jdGlvbiogKCkgew0KICAgICAgICAgICAgY29uc3QgaWQgPSBgJHt3aWR0aH0tJHtoZWlnaHR9YDsNCiAgICAgICAgICAgIGlmICgnT2Zmc2NyZWVuQ2FudmFzJyBpbiBnbG9iYWxUaGlzKSB7DQogICAgICAgICAgICAgICAgaWYgKHRyYW5zcGFyZW50QmxvYk1hcC5oYXMoaWQpKQ0KICAgICAgICAgICAgICAgICAgICByZXR1cm4gdHJhbnNwYXJlbnRCbG9iTWFwLmdldChpZCk7DQogICAgICAgICAgICAgICAgY29uc3Qgb2Zmc2NyZWVuID0gbmV3IE9mZnNjcmVlbkNhbnZhcyh3aWR0aCwgaGVpZ2h0KTsNCiAgICAgICAgICAgICAgICBvZmZzY3JlZW4uZ2V0Q29udGV4dCgnMmQnKTsNCiAgICAgICAgICAgICAgICBjb25zdCBibG9iID0geWllbGQgb2Zmc2NyZWVuLmNvbnZlcnRUb0Jsb2IoZGF0YVVSTE9wdGlvbnMpOw0KICAgICAgICAgICAgICAgIGNvbnN0IGFycmF5QnVmZmVyID0geWllbGQgYmxvYi5hcnJheUJ1ZmZlcigpOw0KICAgICAgICAgICAgICAgIGNvbnN0IGJhc2U2NCA9IGVuY29kZShhcnJheUJ1ZmZlcik7DQogICAgICAgICAgICAgICAgdHJhbnNwYXJlbnRCbG9iTWFwLnNldChpZCwgYmFzZTY0KTsNCiAgICAgICAgICAgICAgICByZXR1cm4gYmFzZTY0Ow0KICAgICAgICAgICAgfQ0KICAgICAgICAgICAgZWxzZSB7DQogICAgICAgICAgICAgICAgcmV0dXJuICcnOw0KICAgICAgICAgICAgfQ0KICAgICAgICB9KTsNCiAgICB9DQogICAgY29uc3Qgd29ya2VyID0gc2VsZjsNCiAgICB3b3JrZXIub25tZXNzYWdlID0gZnVuY3Rpb24gKGUpIHsNCiAgICAgICAgcmV0dXJuIF9fYXdhaXRlcih0aGlzLCB2b2lkIDAsIHZvaWQgMCwgZnVuY3Rpb24qICgpIHsNCiAgICAgICAgICAgIGlmICgnT2Zmc2NyZWVuQ2FudmFzJyBpbiBnbG9iYWxUaGlzKSB7DQogICAgICAgICAgICAgICAgY29uc3QgeyBpZCwgYml0bWFwLCB3aWR0aCwgaGVpZ2h0LCBkYXRhVVJMT3B0aW9ucyB9ID0gZS5kYXRhOw0KICAgICAgICAgICAgICAgIGNvbnN0IHRyYW5zcGFyZW50QmFzZTY0ID0gZ2V0VHJhbnNwYXJlbnRCbG9iRm9yKHdpZHRoLCBoZWlnaHQsIGRhdGFVUkxPcHRpb25zKTsNCiAgICAgICAgICAgICAgICBjb25zdCBvZmZzY3JlZW4gPSBuZXcgT2Zmc2NyZWVuQ2FudmFzKHdpZHRoLCBoZWlnaHQpOw0KICAgICAgICAgICAgICAgIGNvbnN0IGN0eCA9IG9mZnNjcmVlbi5nZXRDb250ZXh0KCcyZCcpOw0KICAgICAgICAgICAgICAgIGN0eC5kcmF3SW1hZ2UoYml0bWFwLCAwLCAwKTsNCiAgICAgICAgICAgICAgICBiaXRtYXAuY2xvc2UoKTsNCiAgICAgICAgICAgICAgICBjb25zdCBibG9iID0geWllbGQgb2Zmc2NyZWVuLmNvbnZlcnRUb0Jsb2IoZGF0YVVSTE9wdGlvbnMpOw0KICAgICAgICAgICAgICAgIGNvbnN0IHR5cGUgPSBibG9iLnR5cGU7DQogICAgICAgICAgICAgICAgY29uc3QgYXJyYXlCdWZmZXIgPSB5aWVsZCBibG9iLmFycmF5QnVmZmVyKCk7DQogICAgICAgICAgICAgICAgY29uc3QgYmFzZTY0ID0gZW5jb2RlKGFycmF5QnVmZmVyKTsNCiAgICAgICAgICAgICAgICBpZiAoIWxhc3RCbG9iTWFwLmhhcyhpZCkgJiYgKHlpZWxkIHRyYW5zcGFyZW50QmFzZTY0KSA9PT0gYmFzZTY0KSB7DQogICAgICAgICAgICAgICAgICAgIGxhc3RCbG9iTWFwLnNldChpZCwgYmFzZTY0KTsNCiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIHdvcmtlci5wb3N0TWVzc2FnZSh7IGlkIH0pOw0KICAgICAgICAgICAgICAgIH0NCiAgICAgICAgICAgICAgICBpZiAobGFzdEJsb2JNYXAuZ2V0KGlkKSA9PT0gYmFzZTY0KQ0KICAgICAgICAgICAgICAgICAgICByZXR1cm4gd29ya2VyLnBvc3RNZXNzYWdlKHsgaWQgfSk7DQogICAgICAgICAgICAgICAgd29ya2VyLnBvc3RNZXNzYWdlKHsNCiAgICAgICAgICAgICAgICAgICAgaWQsDQogICAgICAgICAgICAgICAgICAgIHR5cGUsDQogICAgICAgICAgICAgICAgICAgIGJhc2U2NCwNCiAgICAgICAgICAgICAgICAgICAgd2lkdGgsDQogICAgICAgICAgICAgICAgICAgIGhlaWdodCwNCiAgICAgICAgICAgICAgICB9KTsNCiAgICAgICAgICAgICAgICBsYXN0QmxvYk1hcC5zZXQoaWQsIGJhc2U2NCk7DQogICAgICAgICAgICB9DQogICAgICAgICAgICBlbHNlIHsNCiAgICAgICAgICAgICAgICByZXR1cm4gd29ya2VyLnBvc3RNZXNzYWdlKHsgaWQ6IGUuZGF0YS5pZCB9KTsNCiAgICAgICAgICAgIH0NCiAgICAgICAgfSk7DQogICAgfTsKCn0pKCk7Cgo=', null, false);
+
+class CanvasManagerNoop {
+    reset() {
+    }
+    freeze() {
+    }
+    unfreeze() {
+    }
+    lock() {
+    }
+    unlock() {
+    }
+}
 class CanvasManager {
     reset() {
         this.pendingCanvasMutations.clear();
@@ -15768,7 +17264,7 @@ class CanvasManager {
         this.rafStamps = { latestId: 0, invokeId: null };
         this.frozen = false;
         this.locked = false;
-        this.processMutation = function (target, mutation) {
+        this.processMutation = (target, mutation) => {
             const newFrame = this.rafStamps.invokeId &&
                 this.rafStamps.latestId !== this.rafStamps.invokeId;
             if (newFrame || !this.rafStamps.invokeId)
@@ -15778,16 +17274,108 @@ class CanvasManager {
             }
             this.pendingCanvasMutations.get(target).push(mutation);
         };
+        const { sampling = 'all', win, blockClass, blockSelector, unblockSelector, recordCanvas, dataURLOptions, } = options;
         this.mutationCb = options.mutationCb;
         this.mirror = options.mirror;
-        if (options.recordCanvas === true)
-            this.initCanvasMutationObserver(options.win, options.blockClass, options.blockSelector, options.unblockSelector);
+        if (recordCanvas && sampling === 'all')
+            this.initCanvasMutationObserver(win, blockClass, blockSelector, unblockSelector);
+        if (recordCanvas && typeof sampling === 'number')
+            this.initCanvasFPSObserver(sampling, win, blockClass, blockSelector, unblockSelector, {
+                dataURLOptions,
+            });
     }
-    initCanvasMutationObserver(win, blockClass, unblockSelector, blockSelector) {
+    initCanvasFPSObserver(fps, win, blockClass, blockSelector, unblockSelector, options) {
+        const canvasContextReset = initCanvasContextObserver(win, blockClass, blockSelector, unblockSelector, true);
+        const snapshotInProgressMap = new Map();
+        const worker = new WorkerFactory();
+        worker.onmessage = (e) => {
+            const { id } = e.data;
+            snapshotInProgressMap.set(id, false);
+            if (!('base64' in e.data))
+                return;
+            const { base64, type, width, height } = e.data;
+            this.mutationCb({
+                id,
+                type: CanvasContext['2D'],
+                commands: [
+                    {
+                        property: 'clearRect',
+                        args: [0, 0, width, height],
+                    },
+                    {
+                        property: 'drawImage',
+                        args: [
+                            {
+                                rr_type: 'ImageBitmap',
+                                args: [
+                                    {
+                                        rr_type: 'Blob',
+                                        data: [{ rr_type: 'ArrayBuffer', base64 }],
+                                        type,
+                                    },
+                                ],
+                            },
+                            0,
+                            0,
+                        ],
+                    },
+                ],
+            });
+        };
+        const timeBetweenSnapshots = 1000 / fps;
+        let lastSnapshotTime = 0;
+        let rafId;
+        const getCanvas = () => {
+            const matchedCanvas = [];
+            win.document.querySelectorAll('canvas').forEach((canvas) => {
+                if (!isBlocked(canvas, blockClass, blockSelector, unblockSelector, true)) {
+                    matchedCanvas.push(canvas);
+                }
+            });
+            return matchedCanvas;
+        };
+        const takeCanvasSnapshots = (timestamp) => {
+            if (lastSnapshotTime &&
+                timestamp - lastSnapshotTime < timeBetweenSnapshots) {
+                rafId = requestAnimationFrame(takeCanvasSnapshots);
+                return;
+            }
+            lastSnapshotTime = timestamp;
+            getCanvas()
+                .forEach((canvas) => __awaiter(this, void 0, void 0, function* () {
+                var _a;
+                const id = this.mirror.getId(canvas);
+                if (snapshotInProgressMap.get(id))
+                    return;
+                snapshotInProgressMap.set(id, true);
+                if (['webgl', 'webgl2'].includes(canvas.__context)) {
+                    const context = canvas.getContext(canvas.__context);
+                    if (((_a = context === null || context === void 0 ? void 0 : context.getContextAttributes()) === null || _a === void 0 ? void 0 : _a.preserveDrawingBuffer) === false) {
+                        context.clear(context.COLOR_BUFFER_BIT);
+                    }
+                }
+                const bitmap = yield createImageBitmap(canvas);
+                worker.postMessage({
+                    id,
+                    bitmap,
+                    width: canvas.width,
+                    height: canvas.height,
+                    dataURLOptions: options.dataURLOptions,
+                }, [bitmap]);
+            }));
+            rafId = requestAnimationFrame(takeCanvasSnapshots);
+        };
+        rafId = requestAnimationFrame(takeCanvasSnapshots);
+        this.resetObservers = () => {
+            canvasContextReset();
+            cancelAnimationFrame(rafId);
+        };
+    }
+    initCanvasMutationObserver(win, blockClass, blockSelector, unblockSelector) {
         this.startRAFTimestamping();
         this.startPendingCanvasMutationFlusher();
-        const canvasContextReset = initCanvasContextObserver(win, blockClass, blockSelector, unblockSelector);
-        const canvas2DReset = initCanvas2DMutationObserver(this.processMutation.bind(this), win, blockClass, blockSelector, unblockSelector, this.mirror);
+        const canvasContextReset = initCanvasContextObserver(win, blockClass, blockSelector, unblockSelector, false);
+        const canvas2DReset = initCanvas2DMutationObserver(this.processMutation.bind(this), win, blockClass, blockSelector, unblockSelector);
         const canvasWebGL1and2Reset = initCanvasWebGLMutationObserver(this.processMutation.bind(this), win, blockClass, blockSelector, unblockSelector, this.mirror);
         this.resetObservers = () => {
             canvasContextReset();
@@ -15829,20 +17417,133 @@ class CanvasManager {
     }
 }
 
+class StylesheetManager {
+    constructor(options) {
+        this.trackedLinkElements = new WeakSet();
+        this.styleMirror = new StyleSheetMirror();
+        this.mutationCb = options.mutationCb;
+        this.adoptedStyleSheetCb = options.adoptedStyleSheetCb;
+    }
+    attachLinkElement(linkEl, childSn) {
+        if ('_cssText' in childSn.attributes)
+            this.mutationCb({
+                adds: [],
+                removes: [],
+                texts: [],
+                attributes: [
+                    {
+                        id: childSn.id,
+                        attributes: childSn
+                            .attributes,
+                    },
+                ],
+            });
+        this.trackLinkElement(linkEl);
+    }
+    trackLinkElement(linkEl) {
+        if (this.trackedLinkElements.has(linkEl))
+            return;
+        this.trackedLinkElements.add(linkEl);
+        this.trackStylesheetInLinkElement(linkEl);
+    }
+    adoptStyleSheets(sheets, hostId) {
+        if (sheets.length === 0)
+            return;
+        const adoptedStyleSheetData = {
+            id: hostId,
+            styleIds: [],
+        };
+        const styles = [];
+        for (const sheet of sheets) {
+            let styleId;
+            if (!this.styleMirror.has(sheet)) {
+                styleId = this.styleMirror.add(sheet);
+                styles.push({
+                    styleId,
+                    rules: Array.from(sheet.rules || CSSRule, (r, index) => ({
+                        rule: stringifyRule(r),
+                        index,
+                    })),
+                });
+            }
+            else
+                styleId = this.styleMirror.getId(sheet);
+            adoptedStyleSheetData.styleIds.push(styleId);
+        }
+        if (styles.length > 0)
+            adoptedStyleSheetData.styles = styles;
+        this.adoptedStyleSheetCb(adoptedStyleSheetData);
+    }
+    reset() {
+        this.styleMirror.reset();
+        this.trackedLinkElements = new WeakSet();
+    }
+    trackStylesheetInLinkElement(linkEl) {
+    }
+}
+
+class ProcessedNodeManager {
+    constructor() {
+        this.nodeMap = new WeakMap();
+        this.loop = true;
+        this.periodicallyClear();
+    }
+    periodicallyClear() {
+        requestAnimationFrame(() => {
+            this.clear();
+            if (this.loop)
+                this.periodicallyClear();
+        });
+    }
+    inOtherBuffer(node, thisBuffer) {
+        const buffers = this.nodeMap.get(node);
+        return (buffers && Array.from(buffers).some((buffer) => buffer !== thisBuffer));
+    }
+    add(node, buffer) {
+        this.nodeMap.set(node, (this.nodeMap.get(node) || new Set()).add(buffer));
+    }
+    clear() {
+        this.nodeMap = new WeakMap();
+    }
+    destroy() {
+        this.loop = false;
+    }
+}
+
 function wrapEvent(e) {
-    return Object.assign(Object.assign({}, e), { timestamp: Date.now() });
+    return Object.assign(Object.assign({}, e), { timestamp: nowTimestamp() });
 }
 let wrappedEmit;
 let takeFullSnapshot;
+let canvasManager;
+let recording = false;
 const mirror = createMirror();
 function record(options = {}) {
-    const { emit, checkoutEveryNms, checkoutEveryNth, blockClass = 'rr-block', blockSelector = null, unblockSelector = null, ignoreClass = 'rr-ignore', ignoreSelector = null, maskTextClass = 'rr-mask', maskTextSelector = null, maskInputSelector = null, unmaskTextSelector = null, unmaskInputSelector = null, inlineStylesheet = true, maskAllText = false, maskAllInputs, maskInputOptions: _maskInputOptions, slimDOMOptions: _slimDOMOptions, maskInputFn, maskTextFn, hooks, packFn, sampling = {}, mousemoveWait, recordCanvas = false, userTriggeredOnInput = false, collectFonts = false, inlineImages = false, plugins, keepIframeSrcFn = () => false, onMutation, } = options;
-    if (!emit) {
+    const { emit, checkoutEveryNms, checkoutEveryNth, blockClass = 'rr-block', blockSelector = null, unblockSelector = null, ignoreClass = 'rr-ignore', ignoreSelector = null, maskAllText = false, maskTextClass = 'rr-mask', unmaskTextClass = null, maskTextSelector = null, unmaskTextSelector = null, inlineStylesheet = true, maskAllInputs, maskInputOptions: _maskInputOptions, slimDOMOptions: _slimDOMOptions, maskAttributeFn, maskInputFn, maskTextFn, hooks, packFn, sampling = {}, dataURLOptions = {}, mousemoveWait, recordCanvas = false, recordCrossOriginIframes = false, recordAfter = options.recordAfter === 'DOMContentLoaded'
+        ? options.recordAfter
+        : 'load', userTriggeredOnInput = false, collectFonts = false, inlineImages = false, plugins, keepIframeSrcFn = () => false, ignoreCSSAttributes = new Set([]), errorHandler, onMutation, } = options;
+    registerErrorHandler(errorHandler);
+    const inEmittingFrame = recordCrossOriginIframes
+        ? window.parent === window
+        : true;
+    let passEmitsToParent = false;
+    if (!inEmittingFrame) {
+        try {
+            if (window.parent.document) {
+                passEmitsToParent = false;
+            }
+        }
+        catch (e) {
+            passEmitsToParent = true;
+        }
+    }
+    if (inEmittingFrame && !emit) {
         throw new Error('emit function is required');
     }
     if (mousemoveWait !== undefined && sampling.mousemove === undefined) {
         sampling.mousemove = mousemoveWait;
     }
+    mirror.reset();
     const maskInputOptions = maskAllInputs === true
         ? {
             color: true,
@@ -15891,7 +17592,8 @@ function record(options = {}) {
                 e = plugin.eventProcessor(e);
             }
         }
-        if (packFn) {
+        if (packFn &&
+            !passEmitsToParent) {
             e = packFn(e);
         }
         return e;
@@ -15904,7 +17606,18 @@ function record(options = {}) {
                 e.data.source === IncrementalSource.Mutation)) {
             mutationBuffers.forEach((buf) => buf.unfreeze());
         }
-        emit(eventProcessor(e), isCheckout);
+        if (inEmittingFrame) {
+            emit === null || emit === void 0 ? void 0 : emit(eventProcessor(e), isCheckout);
+        }
+        else if (passEmitsToParent) {
+            const message = {
+                type: 'rrweb',
+                event: eventProcessor(e),
+                origin: window.location.origin,
+                isCheckout,
+            };
+            window.parent.postMessage(message, '*');
+        }
         if (e.type === EventType.FullSnapshot) {
             lastFullSnapshotEvent = e;
             incrementalSnapshotCount = 0;
@@ -15937,47 +17650,81 @@ function record(options = {}) {
         type: EventType.IncrementalSnapshot,
         data: Object.assign({ source: IncrementalSource.CanvasMutation }, p),
     }));
-    const iframeManager = new IframeManager({
+    const wrappedAdoptedStyleSheetEmit = (a) => wrappedEmit(wrapEvent({
+        type: EventType.IncrementalSnapshot,
+        data: Object.assign({ source: IncrementalSource.AdoptedStyleSheet }, a),
+    }));
+    const stylesheetManager = new StylesheetManager({
         mutationCb: wrappedMutationEmit,
+        adoptedStyleSheetCb: wrappedAdoptedStyleSheetEmit,
     });
-    const canvasManager = new CanvasManager({
-        recordCanvas,
-        mutationCb: wrappedCanvasMutationEmit,
-        win: window,
-        blockClass,
-        blockSelector,
-        unblockSelector,
-        mirror,
-    });
-    const shadowDomManager = new ShadowDomManager({
-        mutationCb: wrappedMutationEmit,
-        scrollCb: wrappedScrollEmit,
-        bypassOptions: {
-            onMutation,
-            blockClass,
-            blockSelector,
-            unblockSelector,
-            maskTextClass,
-            maskTextSelector,
-            unmaskTextSelector,
-            maskInputSelector,
-            unmaskInputSelector,
-            inlineStylesheet,
-            maskAllText,
-            maskInputOptions,
-            maskTextFn,
-            maskInputFn,
-            recordCanvas,
-            inlineImages,
-            sampling,
-            slimDOMOptions,
-            iframeManager,
-            canvasManager,
-        },
-        mirror,
-    });
+    const iframeManager = typeof __RRWEB_EXCLUDE_IFRAME__ === 'boolean' && __RRWEB_EXCLUDE_IFRAME__
+        ? new IframeManagerNoop()
+        : new IframeManager({
+            mirror,
+            mutationCb: wrappedMutationEmit,
+            stylesheetManager: stylesheetManager,
+            recordCrossOriginIframes,
+            wrappedEmit,
+        });
+    for (const plugin of plugins || []) {
+        if (plugin.getMirror)
+            plugin.getMirror({
+                nodeMirror: mirror,
+                crossOriginIframeMirror: iframeManager.crossOriginIframeMirror,
+                crossOriginIframeStyleMirror: iframeManager.crossOriginIframeStyleMirror,
+            });
+    }
+    const processedNodeManager = new ProcessedNodeManager();
+    canvasManager =
+        typeof __RRWEB_EXCLUDE_CANVAS__ === 'boolean' && __RRWEB_EXCLUDE_CANVAS__
+            ? new CanvasManagerNoop()
+            : new CanvasManager({
+                recordCanvas,
+                mutationCb: wrappedCanvasMutationEmit,
+                win: window,
+                blockClass,
+                blockSelector,
+                unblockSelector,
+                mirror,
+                sampling: sampling.canvas,
+                dataURLOptions,
+            });
+    const shadowDomManager = typeof __RRWEB_EXCLUDE_SHADOW_DOM__ === 'boolean' &&
+        __RRWEB_EXCLUDE_SHADOW_DOM__
+        ? new ShadowDomManagerNoop()
+        : new ShadowDomManager({
+            mutationCb: wrappedMutationEmit,
+            scrollCb: wrappedScrollEmit,
+            bypassOptions: {
+                onMutation,
+                blockClass,
+                blockSelector,
+                unblockSelector,
+                maskAllText,
+                maskTextClass,
+                unmaskTextClass,
+                maskTextSelector,
+                unmaskTextSelector,
+                inlineStylesheet,
+                maskInputOptions,
+                dataURLOptions,
+                maskAttributeFn,
+                maskTextFn,
+                maskInputFn,
+                recordCanvas,
+                inlineImages,
+                sampling,
+                slimDOMOptions,
+                iframeManager,
+                stylesheetManager,
+                canvasManager,
+                keepIframeSrcFn,
+                processedNodeManager,
+            },
+            mirror,
+        });
     takeFullSnapshot = (isCheckout = false) => {
-        var _a, _b, _c, _d;
         wrappedEmit(wrapEvent({
             type: EventType.Meta,
             data: {
@@ -15986,26 +17733,34 @@ function record(options = {}) {
                 height: getWindowHeight(),
             },
         }), isCheckout);
+        stylesheetManager.reset();
+        shadowDomManager.init();
         mutationBuffers.forEach((buf) => buf.lock());
-        const [node, idNodeMap] = snapshot(document, {
+        const node = snapshot(document, {
+            mirror,
             blockClass,
             blockSelector,
             unblockSelector,
+            maskAllText,
             maskTextClass,
+            unmaskTextClass,
             maskTextSelector,
             unmaskTextSelector,
-            maskInputSelector,
-            unmaskInputSelector,
             inlineStylesheet,
-            maskAllText,
             maskAllInputs: maskInputOptions,
+            maskAttributeFn,
+            maskInputFn,
             maskTextFn,
             slimDOM: slimDOMOptions,
+            dataURLOptions,
             recordCanvas,
             inlineImages,
             onSerialize: (n) => {
-                if (isIframeINode(n)) {
+                if (isSerializedIframe(n, mirror)) {
                     iframeManager.addIframe(n);
+                }
+                if (isSerializedStylesheet(n, mirror)) {
+                    stylesheetManager.trackLinkElement(n);
                 }
                 if (hasShadowRoot(n)) {
                     shadowDomManager.addShadowRoot(n.shadowRoot, document);
@@ -16015,42 +17770,27 @@ function record(options = {}) {
                 iframeManager.attachIframe(iframe, childSn);
                 shadowDomManager.observeAttachShadow(iframe);
             },
+            onStylesheetLoad: (linkEl, childSn) => {
+                stylesheetManager.attachLinkElement(linkEl, childSn);
+            },
             keepIframeSrcFn,
         });
         if (!node) {
             return console.warn('Failed to snapshot the document');
         }
-        mirror.map = idNodeMap;
         wrappedEmit(wrapEvent({
             type: EventType.FullSnapshot,
             data: {
                 node,
-                initialOffset: {
-                    left: window.pageXOffset !== undefined
-                        ? window.pageXOffset
-                        : (document === null || document === void 0 ? void 0 : document.documentElement.scrollLeft) ||
-                            ((_b = (_a = document === null || document === void 0 ? void 0 : document.body) === null || _a === void 0 ? void 0 : _a.parentElement) === null || _b === void 0 ? void 0 : _b.scrollLeft) ||
-                            (document === null || document === void 0 ? void 0 : document.body.scrollLeft) ||
-                            0,
-                    top: window.pageYOffset !== undefined
-                        ? window.pageYOffset
-                        : (document === null || document === void 0 ? void 0 : document.documentElement.scrollTop) ||
-                            ((_d = (_c = document === null || document === void 0 ? void 0 : document.body) === null || _c === void 0 ? void 0 : _c.parentElement) === null || _d === void 0 ? void 0 : _d.scrollTop) ||
-                            (document === null || document === void 0 ? void 0 : document.body.scrollTop) ||
-                            0,
-                },
+                initialOffset: getWindowScroll(window),
             },
-        }));
+        }), isCheckout);
         mutationBuffers.forEach((buf) => buf.unlock());
+        if (document.adoptedStyleSheets && document.adoptedStyleSheets.length > 0)
+            stylesheetManager.adoptStyleSheets(document.adoptedStyleSheets, mirror.getId(document));
     };
     try {
         const handlers = [];
-        handlers.push(on('DOMContentLoaded', () => {
-            wrappedEmit(wrapEvent({
-                type: EventType.DomContentLoaded,
-                data: {},
-            }));
-        }));
         const observe = (doc) => {
             var _a;
             return callbackWrapper(initObservers)({
@@ -16093,14 +17833,26 @@ function record(options = {}) {
                     type: EventType.IncrementalSnapshot,
                     data: Object.assign({ source: IncrementalSource.Font }, p),
                 })),
+                selectionCb: (p) => {
+                    wrappedEmit(wrapEvent({
+                        type: EventType.IncrementalSnapshot,
+                        data: Object.assign({ source: IncrementalSource.Selection }, p),
+                    }));
+                },
+                customElementCb: (c) => {
+                    wrappedEmit(wrapEvent({
+                        type: EventType.IncrementalSnapshot,
+                        data: Object.assign({ source: IncrementalSource.CustomElement }, c),
+                    }));
+                },
                 blockClass,
                 ignoreClass,
                 ignoreSelector,
+                maskAllText,
                 maskTextClass,
+                unmaskTextClass,
                 maskTextSelector,
                 unmaskTextSelector,
-                maskInputSelector,
-                unmaskInputSelector,
                 maskInputOptions,
                 inlineStylesheet,
                 sampling,
@@ -16109,16 +17861,21 @@ function record(options = {}) {
                 userTriggeredOnInput,
                 collectFonts,
                 doc,
-                maskAllText,
+                maskAttributeFn,
                 maskInputFn,
                 maskTextFn,
+                keepIframeSrcFn,
                 blockSelector,
                 unblockSelector,
                 slimDOMOptions,
+                dataURLOptions,
                 mirror,
                 iframeManager,
+                stylesheetManager,
                 shadowDomManager,
+                processedNodeManager,
                 canvasManager,
+                ignoreCSSAttributes,
                 plugins: ((_a = plugins === null || plugins === void 0 ? void 0 : plugins.filter((p) => p.observer)) === null || _a === void 0 ? void 0 : _a.map((p) => ({
                     observer: p.observer,
                     options: p.options,
@@ -16143,22 +17900,35 @@ function record(options = {}) {
         const init = () => {
             takeFullSnapshot();
             handlers.push(observe(document));
+            recording = true;
         };
         if (document.readyState === 'interactive' ||
             document.readyState === 'complete') {
             init();
         }
         else {
+            handlers.push(on('DOMContentLoaded', () => {
+                wrappedEmit(wrapEvent({
+                    type: EventType.DomContentLoaded,
+                    data: {},
+                }));
+                if (recordAfter === 'DOMContentLoaded')
+                    init();
+            }));
             handlers.push(on('load', () => {
                 wrappedEmit(wrapEvent({
                     type: EventType.Load,
                     data: {},
                 }));
-                init();
+                if (recordAfter === 'load')
+                    init();
             }, window));
         }
         return () => {
             handlers.forEach((h) => h());
+            processedNodeManager.destroy();
+            recording = false;
+            unregisterErrorHandler();
         };
     }
     catch (error) {
@@ -16166,7 +17936,7 @@ function record(options = {}) {
     }
 }
 record.addCustomEvent = (tag, payload) => {
-    if (!wrappedEmit) {
+    if (!recording) {
         throw new Error('please add custom event after start recording');
     }
     wrappedEmit(wrapEvent({
@@ -16181,7 +17951,7 @@ record.freezePage = () => {
     mutationBuffers.forEach((buf) => buf.freeze());
 };
 record.takeFullSnapshot = (isCheckout) => {
-    if (!takeFullSnapshot) {
+    if (!recording) {
         throw new Error('please take full snapshot after start recording');
     }
     takeFullSnapshot(isCheckout);
@@ -16677,27 +18447,25 @@ const handleDomListener = (
 
 /** Get the base DOM breadcrumb. */
 function getBaseDomBreadcrumb(target, message) {
-  // `__sn` property is the serialized node created by rrweb
-  const serializedNode = target && isRrwebNode(target) && target.__sn.type === NodeType.Element ? target.__sn : null;
+  const nodeId = record.mirror.getId(target);
+  const node = nodeId && record.mirror.getNode(nodeId);
+  const meta = node && record.mirror.getMeta(node);
+  const element = meta && isElement(meta) ? meta : null;
 
   return {
     message,
-    data: serializedNode
+    data: element
       ? {
-          nodeId: serializedNode.id,
+          nodeId,
           node: {
-            id: serializedNode.id,
-            tagName: serializedNode.tagName,
-            textContent: target
-              ? Array.from(target.childNodes)
-                  .map(
-                    (node) => '__sn' in node && node.__sn.type === NodeType.Text && node.__sn.textContent,
-                  )
-                  .filter(Boolean) // filter out empty values
-                  .map(text => (text ).trim())
-                  .join('')
-              : '',
-            attributes: getAttributesToRecord(serializedNode.attributes),
+            id: nodeId,
+            tagName: element.tagName,
+            textContent: Array.from(element.childNodes)
+              .map((node) => node.type === NodeType.Text && node.textContent)
+              .filter(Boolean) // filter out empty values
+              .map(text => (text ).trim())
+              .join(''),
+            attributes: getAttributesToRecord(element.attributes),
           },
         }
       : {},
@@ -16734,8 +18502,8 @@ function getDomTarget(handlerData) {
   return { target, message };
 }
 
-function isRrwebNode(node) {
-  return '__sn' in node;
+function isElement(node) {
+  return node.type === NodeType.Element;
 }
 
 /** Handle keyboard events & create breadcrumbs. */
@@ -16798,136 +18566,193 @@ function isInputElement(target) {
   return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 }
 
-const NAVIGATION_ENTRY_KEYS = [
-  'name',
-  'type',
-  'startTime',
-  'transferSize',
-  'duration',
-];
+// Map entryType -> function to normalize data for event
+const ENTRY_TYPES
 
-function isNavigationEntryEqual(a) {
-  return function (b) {
-    return NAVIGATION_ENTRY_KEYS.every(key => a[key] === b[key]);
+ = {
+  // @ts-expect-error TODO: entry type does not fit the create* functions entry type
+  resource: createResourceEntry,
+  paint: createPaintEntry,
+  // @ts-expect-error TODO: entry type does not fit the create* functions entry type
+  navigation: createNavigationEntry,
+};
+
+/**
+ * Create replay performance entries from the browser performance entries.
+ */
+function createPerformanceEntries(
+  entries,
+) {
+  return entries.map(createPerformanceEntry).filter(Boolean) ;
+}
+
+function createPerformanceEntry(entry) {
+  if (!ENTRY_TYPES[entry.entryType]) {
+    return null;
+  }
+
+  return ENTRY_TYPES[entry.entryType](entry);
+}
+
+function getAbsoluteTime(time) {
+  // browserPerformanceTimeOrigin can be undefined if `performance` or
+  // `performance.now` doesn't exist, but this is already checked by this integration
+  return ((utils.browserPerformanceTimeOrigin || WINDOW.performance.timeOrigin) + time) / 1000;
+}
+
+function createPaintEntry(entry) {
+  const { duration, entryType, name, startTime } = entry;
+
+  const start = getAbsoluteTime(startTime);
+  return {
+    type: entryType,
+    name,
+    start,
+    end: start + duration,
+    data: undefined,
+  };
+}
+
+function createNavigationEntry(entry) {
+  const {
+    entryType,
+    name,
+    decodedBodySize,
+    duration,
+    domComplete,
+    encodedBodySize,
+    domContentLoadedEventStart,
+    domContentLoadedEventEnd,
+    domInteractive,
+    loadEventStart,
+    loadEventEnd,
+    redirectCount,
+    startTime,
+    transferSize,
+    type,
+  } = entry;
+
+  // Ignore entries with no duration, they do not seem to be useful and cause dupes
+  if (duration === 0) {
+    return null;
+  }
+
+  return {
+    type: `${entryType}.${type}`,
+    start: getAbsoluteTime(startTime),
+    end: getAbsoluteTime(domComplete),
+    name,
+    data: {
+      size: transferSize,
+      decodedBodySize,
+      encodedBodySize,
+      duration,
+      domInteractive,
+      domContentLoadedEventStart,
+      domContentLoadedEventEnd,
+      loadEventStart,
+      loadEventEnd,
+      domComplete,
+      redirectCount,
+    },
+  };
+}
+
+function createResourceEntry(
+  entry,
+) {
+  const {
+    entryType,
+    initiatorType,
+    name,
+    responseEnd,
+    startTime,
+    decodedBodySize,
+    encodedBodySize,
+    responseStatus,
+    transferSize,
+  } = entry;
+
+  // Core SDK handles these
+  if (['fetch', 'xmlhttprequest'].includes(initiatorType)) {
+    return null;
+  }
+
+  return {
+    type: `${entryType}.${initiatorType}`,
+    start: getAbsoluteTime(startTime),
+    end: getAbsoluteTime(responseEnd),
+    name,
+    data: {
+      size: transferSize,
+      statusCode: responseStatus,
+      decodedBodySize,
+      encodedBodySize,
+    },
   };
 }
 
 /**
- * There are some difficulties diagnosing why there are duplicate navigation
- * entries. We've witnessed several intermittent results:
- * - duplicate entries have duration = 0
- * - duplicate entries are the same object reference
- * - none of the above
- *
- * Compare the values of several keys to determine if the entries are duplicates or not.
+ * Add a LCP event to the replay based on an LCP metric.
  */
-// TODO (high-prio): Figure out wth is returned here
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-function dedupePerformanceEntries(
-  currentList,
-  newList,
+function getLargestContentfulPaint(metric
+
 ) {
-  // Partition `currentList` into 3 different lists based on entryType
-  const [existingNavigationEntries, existingLcpEntries, existingEntries] = currentList.reduce(
-    (acc, entry) => {
-      if (entry.entryType === 'navigation') {
-        acc[0].push(entry );
-      } else if (entry.entryType === 'largest-contentful-paint') {
-        acc[1].push(entry );
-      } else {
-        acc[2].push(entry);
-      }
-      return acc;
+  const entries = metric.entries;
+  const lastEntry = entries[entries.length - 1] ;
+  const element = lastEntry ? lastEntry.element : undefined;
+
+  const value = metric.value;
+
+  const end = getAbsoluteTime(value);
+
+  const data = {
+    type: 'largest-contentful-paint',
+    name: 'largest-contentful-paint',
+    start: end,
+    end,
+    data: {
+      value,
+      size: value,
+      nodeId: element ? record.mirror.getId(element) : undefined,
     },
-    [[], [], []],
-  );
+  };
 
-  const newEntries = [];
-  const newNavigationEntries = [];
-  let newLcpEntry = existingLcpEntries.length
-    ? existingLcpEntries[existingLcpEntries.length - 1] // Take the last element as list is sorted
-    : undefined;
-
-  newList.forEach(entry => {
-    if (entry.entryType === 'largest-contentful-paint') {
-      // We want the latest LCP event only
-      if (!newLcpEntry || newLcpEntry.startTime < entry.startTime) {
-        newLcpEntry = entry;
-      }
-      return;
-    }
-
-    if (entry.entryType === 'navigation') {
-      const navigationEntry = entry ;
-
-      // Check if the navigation entry is contained in currentList or newList
-      if (
-        // Ignore any navigation entries with duration 0, as they are likely duplicates
-        entry.duration > 0 &&
-        // Ensure new entry does not already exist in existing entries
-        !existingNavigationEntries.find(isNavigationEntryEqual(navigationEntry)) &&
-        // Ensure new entry does not already exist in new list of navigation entries
-        !newNavigationEntries.find(isNavigationEntryEqual(navigationEntry))
-      ) {
-        newNavigationEntries.push(navigationEntry);
-      }
-
-      // Otherwise this navigation entry is considered a duplicate and is thrown away
-      return;
-    }
-
-    newEntries.push(entry);
-  });
-
-  // Re-combine and sort by startTime
-  return [
-    ...(newLcpEntry ? [newLcpEntry] : []),
-    ...existingNavigationEntries,
-    ...existingEntries,
-    ...newEntries,
-    ...newNavigationEntries,
-  ].sort((a, b) => a.startTime - b.startTime);
+  return data;
 }
 
 /**
  * Sets up a PerformanceObserver to listen to all performance entry types.
+ * Returns a callback to stop observing.
  */
 function setupPerformanceObserver(replay) {
-  const performanceObserverHandler = (list) => {
-    // For whatever reason the observer was returning duplicate navigation
-    // entries (the other entry types were not duplicated).
-    const newPerformanceEntries = dedupePerformanceEntries(
-      replay.performanceEvents,
-      list.getEntries() ,
-    );
-    replay.performanceEvents = newPerformanceEntries;
-  };
-
-  const performanceObserver = new PerformanceObserver(performanceObserverHandler);
-
-  [
-    'element',
-    'event',
-    'first-input',
-    'largest-contentful-paint',
-    'layout-shift',
-    'longtask',
-    'navigation',
-    'paint',
-    'resource',
-  ].forEach(type => {
-    try {
-      performanceObserver.observe({
-        type,
-        buffered: true,
-      });
-    } catch (e) {
-      // This can throw if an entry type is not supported in the browser.
-      // Ignore these errors.
+  function addPerformanceEntry(entry) {
+    // It is possible for entries to come up multiple times
+    if (!replay.performanceEntries.includes(entry)) {
+      replay.performanceEntries.push(entry);
     }
+  }
+
+  function onEntries({ entries }) {
+    entries.forEach(addPerformanceEntry);
+  }
+
+  const clearCallbacks = [];
+
+  (['navigation', 'paint', 'resource'] ).forEach(type => {
+    clearCallbacks.push(tracing.addPerformanceInstrumentationHandler(type, onEntries));
   });
 
-  return performanceObserver;
+  clearCallbacks.push(
+    tracing.addLcpInstrumentationHandler(({ metric }) => {
+      replay.replayPerformanceEntries.push(getLargestContentfulPaint(metric));
+    }),
+  );
+
+  // A callback to cleanup all handlers
+  return () => {
+    clearCallbacks.forEach(clearCallback => clearCallback());
+  };
 }
 
 const r = `/*! pako 2.1.0 https://github.com/nodeca/pako @license (MIT AND Zlib) */
@@ -17911,53 +19736,62 @@ function handleGlobalEventListener(
 ) {
   const afterSendHandler = includeAfterSendEventHandling ? handleAfterSendEvent(replay) : undefined;
 
-  return (event, hint) => {
-    // Do nothing if replay has been disabled
-    if (!replay.isEnabled()) {
+  return Object.assign(
+    (event, hint) => {
+      // Do nothing if replay has been disabled
+      if (!replay.isEnabled()) {
+        return event;
+      }
+
+      if (isReplayEvent(event)) {
+        // Replays have separate set of breadcrumbs, do not include breadcrumbs
+        // from core SDK
+        delete event.breadcrumbs;
+        return event;
+      }
+
+      // We only want to handle errors & transactions, nothing else
+      if (!isErrorEvent(event) && !isTransactionEvent(event)) {
+        return event;
+      }
+
+      // Ensure we do not add replay_id if the session is expired
+      const isSessionActive = replay.checkAndHandleExpiredSession();
+      if (!isSessionActive) {
+        return event;
+      }
+
+      // Unless `captureExceptions` is enabled, we want to ignore errors coming from rrweb
+      // As there can be a bunch of stuff going wrong in internals there, that we don't want to bubble up to users
+      if (isRrwebError(event, hint) && !replay.getOptions()._experiments.captureExceptions) {
+        (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log('[Replay] Ignoring error from rrweb internals', event);
+        return null;
+      }
+
+      // When in buffer mode, we decide to sample here.
+      // Later, in `handleAfterSendEvent`, if the replayId is set, we know that we sampled
+      // And convert the buffer session to a full session
+      const isErrorEventSampled = shouldSampleForBufferEvent(replay, event);
+
+      // Tag errors if it has been sampled in buffer mode, or if it is session mode
+      // Only tag transactions if in session mode
+      const shouldTagReplayId = isErrorEventSampled || replay.recordingMode === 'session';
+
+      if (shouldTagReplayId) {
+        event.tags = { ...event.tags, replayId: replay.getSessionId() };
+      }
+
+      // In cases where a custom client is used that does not support the new hooks (yet),
+      // we manually call this hook method here
+      if (afterSendHandler) {
+        // Pretend the error had a 200 response so we always capture it
+        afterSendHandler(event, { statusCode: 200 });
+      }
+
       return event;
-    }
-
-    if (isReplayEvent(event)) {
-      // Replays have separate set of breadcrumbs, do not include breadcrumbs
-      // from core SDK
-      delete event.breadcrumbs;
-      return event;
-    }
-
-    // We only want to handle errors & transactions, nothing else
-    if (!isErrorEvent(event) && !isTransactionEvent(event)) {
-      return event;
-    }
-
-    // Unless `captureExceptions` is enabled, we want to ignore errors coming from rrweb
-    // As there can be a bunch of stuff going wrong in internals there, that we don't want to bubble up to users
-    if (isRrwebError(event, hint) && !replay.getOptions()._experiments.captureExceptions) {
-      (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && utils.logger.log('[Replay] Ignoring error from rrweb internals', event);
-      return null;
-    }
-
-    // When in buffer mode, we decide to sample here.
-    // Later, in `handleAfterSendEvent`, if the replayId is set, we know that we sampled
-    // And convert the buffer session to a full session
-    const isErrorEventSampled = shouldSampleForBufferEvent(replay, event);
-
-    // Tag errors if it has been sampled in buffer mode, or if it is session mode
-    // Only tag transactions if in session mode
-    const shouldTagReplayId = isErrorEventSampled || replay.recordingMode === 'session';
-
-    if (shouldTagReplayId) {
-      event.tags = { ...event.tags, replayId: replay.getSessionId() };
-    }
-
-    // In cases where a custom client is used that does not support the new hooks (yet),
-    // we manually call this hook method here
-    if (afterSendHandler) {
-      // Pretend the error had a 200 response so we always capture it
-      afterSendHandler(event, { statusCode: 200 });
-    }
-
-    return event;
-  };
+    },
+    { id: 'Replay' },
+  );
 }
 
 /**
@@ -18041,16 +19875,7 @@ function shouldFilterRequest(replay, url) {
     return false;
   }
 
-  return _isSentryRequest(url);
-}
-
-/**
- * Checks wether a given URL belongs to the configured Sentry DSN.
- */
-function _isSentryRequest(url) {
-  const client = core.getCurrentHub().getClient();
-  const dsn = client && client.getDsn();
-  return dsn ? url.includes(dsn.host) : false;
+  return core.isSentryRequestUrl(url, core.getCurrentHub());
 }
 
 /** Add a performance entry breadcrumb */
@@ -19333,7 +21158,12 @@ function addGlobalListeners(replay) {
 
   // Tag all (non replay) events that get sent to Sentry with the current
   // replay ID so that we can reference them later in the UI
-  core.addGlobalEventProcessor(handleGlobalEventListener(replay, !hasHooks(client)));
+  const eventProcessor = handleGlobalEventListener(replay, !hasHooks(client));
+  if (client && client.addEventProcessor) {
+    client.addEventProcessor(eventProcessor);
+  } else {
+    core.addGlobalEventProcessor(eventProcessor);
+  }
 
   // If a custom client has no hooks yet, we continue to use the "old" implementation
   if (hasHooks(client)) {
@@ -19398,171 +21228,6 @@ function createMemoryEntry(memoryEntry) {
         totalJSHeapSize,
         usedJSHeapSize,
       },
-    },
-  };
-}
-
-// Map entryType -> function to normalize data for event
-const ENTRY_TYPES
-
- = {
-  // @ts-expect-error TODO: entry type does not fit the create* functions entry type
-  resource: createResourceEntry,
-  paint: createPaintEntry,
-  // @ts-expect-error TODO: entry type does not fit the create* functions entry type
-  navigation: createNavigationEntry,
-  // @ts-expect-error TODO: entry type does not fit the create* functions entry type
-  ['largest-contentful-paint']: createLargestContentfulPaint,
-};
-
-/**
- * Create replay performance entries from the browser performance entries.
- */
-function createPerformanceEntries(
-  entries,
-) {
-  return entries.map(createPerformanceEntry).filter(Boolean) ;
-}
-
-function createPerformanceEntry(entry) {
-  if (ENTRY_TYPES[entry.entryType] === undefined) {
-    return null;
-  }
-
-  return ENTRY_TYPES[entry.entryType](entry);
-}
-
-function getAbsoluteTime(time) {
-  // browserPerformanceTimeOrigin can be undefined if `performance` or
-  // `performance.now` doesn't exist, but this is already checked by this integration
-  return ((utils.browserPerformanceTimeOrigin || WINDOW.performance.timeOrigin) + time) / 1000;
-}
-
-function createPaintEntry(entry) {
-  const { duration, entryType, name, startTime } = entry;
-
-  const start = getAbsoluteTime(startTime);
-  return {
-    type: entryType,
-    name,
-    start,
-    end: start + duration,
-    data: undefined,
-  };
-}
-
-function createNavigationEntry(entry) {
-  const {
-    entryType,
-    name,
-    decodedBodySize,
-    duration,
-    domComplete,
-    encodedBodySize,
-    domContentLoadedEventStart,
-    domContentLoadedEventEnd,
-    domInteractive,
-    loadEventStart,
-    loadEventEnd,
-    redirectCount,
-    startTime,
-    transferSize,
-    type,
-  } = entry;
-
-  // Ignore entries with no duration, they do not seem to be useful and cause dupes
-  if (duration === 0) {
-    return null;
-  }
-
-  return {
-    type: `${entryType}.${type}`,
-    start: getAbsoluteTime(startTime),
-    end: getAbsoluteTime(domComplete),
-    name,
-    data: {
-      size: transferSize,
-      decodedBodySize,
-      encodedBodySize,
-      duration,
-      domInteractive,
-      domContentLoadedEventStart,
-      domContentLoadedEventEnd,
-      loadEventStart,
-      loadEventEnd,
-      domComplete,
-      redirectCount,
-    },
-  };
-}
-
-function createResourceEntry(
-  entry,
-) {
-  const {
-    entryType,
-    initiatorType,
-    name,
-    responseEnd,
-    startTime,
-    decodedBodySize,
-    encodedBodySize,
-    responseStatus,
-    transferSize,
-  } = entry;
-
-  // Core SDK handles these
-  if (['fetch', 'xmlhttprequest'].includes(initiatorType)) {
-    return null;
-  }
-
-  return {
-    type: `${entryType}.${initiatorType}`,
-    start: getAbsoluteTime(startTime),
-    end: getAbsoluteTime(responseEnd),
-    name,
-    data: {
-      size: transferSize,
-      statusCode: responseStatus,
-      decodedBodySize,
-      encodedBodySize,
-    },
-  };
-}
-
-function createLargestContentfulPaint(
-  entry,
-) {
-  const { entryType, startTime, size } = entry;
-
-  let startTimeOrNavigationActivation = 0;
-
-  if (WINDOW.performance) {
-    const navEntry = WINDOW.performance.getEntriesByType('navigation')[0]
-
-;
-
-    // See https://github.com/GoogleChrome/web-vitals/blob/9f11c4c6578fb4c5ee6fa4e32b9d1d756475f135/src/lib/getActivationStart.ts#L21
-    startTimeOrNavigationActivation = (navEntry && navEntry.activationStart) || 0;
-  }
-
-  // value is in ms
-  const value = Math.max(startTime - startTimeOrNavigationActivation, 0);
-  // LCP doesn't have a "duration", it just happens at a single point in time.
-  // But the UI expects both, so use end (in seconds) for both timestamps.
-  const end = getAbsoluteTime(startTimeOrNavigationActivation) + value / 1000;
-
-  return {
-    type: entryType,
-    name: entryType,
-    start: end,
-    end,
-    data: {
-      value, // LCP "duration" in ms
-      size,
-      // Not sure why this errors, Node should be correct (Argument of type 'Node' is not assignable to parameter of type 'INode')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      nodeId: record.mirror.getId(entry.element ),
     },
   };
 }
@@ -19838,11 +21503,19 @@ async function prepareReplayEvent({
     typeof client._integrations === 'object' && client._integrations !== null && !Array.isArray(client._integrations)
       ? Object.keys(client._integrations)
       : undefined;
+
+  const eventHint = { event_id, integrations };
+
+  if (client.emit) {
+    client.emit('preprocessEvent', event, eventHint);
+  }
+
   const preparedEvent = (await core.prepareEvent(
     client.getOptions(),
     event,
-    { event_id, integrations },
+    eventHint,
     scope,
+    client,
   )) ;
 
   // If e.g. a global event processor returned null
@@ -20130,10 +21803,6 @@ function throttle(
 class ReplayContainer  {
 
   /**
-   * List of PerformanceEntry from PerformanceObserver
-   */
-
-  /**
    * Recording can happen in one of three modes:
    *   - session: Record the whole session, sending it continuously
    *   - buffer: Always keep the last 60s of recording, requires:
@@ -20185,7 +21854,8 @@ class ReplayContainer  {
 
 ) {ReplayContainer.prototype.__init.call(this);ReplayContainer.prototype.__init2.call(this);ReplayContainer.prototype.__init3.call(this);ReplayContainer.prototype.__init4.call(this);ReplayContainer.prototype.__init5.call(this);ReplayContainer.prototype.__init6.call(this);
     this.eventBuffer = null;
-    this.performanceEvents = [];
+    this.performanceEntries = [];
+    this.replayPerformanceEntries = [];
     this.recordingMode = 'session';
     this.timeouts = {
       sessionIdlePause: SESSION_IDLE_PAUSE_DURATION,
@@ -20679,7 +22349,8 @@ class ReplayContainer  {
     const urlPath = `${WINDOW.location.pathname}${WINDOW.location.hash}${WINDOW.location.search}`;
     const url = `${WINDOW.location.origin}${urlPath}`;
 
-    this.performanceEvents = [];
+    this.performanceEntries = [];
+    this.replayPerformanceEntries = [];
 
     // Reset _context as well
     this._clearContext();
@@ -20858,12 +22529,7 @@ class ReplayContainer  {
       this._handleException(err);
     }
 
-    // PerformanceObserver //
-    if (!('PerformanceObserver' in WINDOW)) {
-      return;
-    }
-
-    this._performanceObserver = setupPerformanceObserver(this);
+    this._performanceCleanupCallback = setupPerformanceObserver(this);
   }
 
   /**
@@ -20881,9 +22547,8 @@ class ReplayContainer  {
         this.clickDetector.removeListeners();
       }
 
-      if (this._performanceObserver) {
-        this._performanceObserver.disconnect();
-        this._performanceObserver = undefined;
+      if (this._performanceCleanupCallback) {
+        this._performanceCleanupCallback();
       }
     } catch (err) {
       this._handleException(err);
@@ -21032,15 +22697,16 @@ class ReplayContainer  {
   }
 
   /**
-   * Observed performance events are added to `this.performanceEvents`. These
+   * Observed performance events are added to `this.performanceEntries`. These
    * are included in the replay event before it is finished and sent to Sentry.
    */
    _addPerformanceEntries() {
-    // Copy and reset entries before processing
-    const entries = [...this.performanceEvents];
-    this.performanceEvents = [];
+    const performanceEntries = createPerformanceEntries(this.performanceEntries).concat(this.replayPerformanceEntries);
 
-    return Promise.all(createPerformanceSpans(this, createPerformanceEntries(entries)));
+    this.performanceEntries = [];
+    this.replayPerformanceEntries = [];
+
+    return Promise.all(createPerformanceSpans(this, performanceEntries));
   }
 
   /**
@@ -21351,8 +23017,6 @@ function getPrivacyOptions({
     // We are making the decision to make text and input selectors the same
     maskTextSelector: maskSelector,
     unmaskTextSelector: unmaskSelector,
-    maskInputSelector: maskSelector,
-    unmaskInputSelector: unmaskSelector,
 
     blockSelector: getOption(
       block,
@@ -21376,16 +23040,36 @@ function getPrivacyOptions({
 }
 
 /**
- * Returns true if we are in the browser.
+ * Masks an attribute if necessary, otherwise return attribute value as-is.
  */
-function isBrowser() {
-  // eslint-disable-next-line no-restricted-globals
-  return typeof window !== 'undefined' && (!utils.isNodeEnv() || isElectronNodeRenderer());
-}
+function maskAttribute({
+  el,
+  key,
+  maskAttributes,
+  maskAllText,
+  privacyOptions,
+  value,
+}) {
+  // We only mask attributes if `maskAllText` is true
+  if (!maskAllText) {
+    return value;
+  }
 
-// Electron renderers with nodeIntegration enabled are detected as Node.js so we specifically test for them
-function isElectronNodeRenderer() {
-  return typeof process !== 'undefined' && (process ).type === 'renderer';
+  // unmaskTextSelector takes precendence
+  if (privacyOptions.unmaskTextSelector && el.matches(privacyOptions.unmaskTextSelector)) {
+    return value;
+  }
+
+  if (
+    maskAttributes.includes(key) ||
+    // Need to mask `value` attribute for `<input>` if it's a button-like
+    // type
+    (key === 'value' && el.tagName === 'INPUT' && ['submit', 'button'].includes(el.getAttribute('type') || ''))
+  ) {
+    return value.replace(/[\S]/g, '*');
+  }
+
+  return value;
 }
 
 const MEDIA_SELECTORS =
@@ -21447,6 +23131,7 @@ class Replay  {
     networkResponseHeaders = [],
 
     mask = [],
+    maskAttributes = ['title', 'placeholder'],
     unmask = [],
     block = [],
     unblock = [],
@@ -21470,25 +23155,36 @@ class Replay  {
   } = {}) {
     this.name = Replay.id;
 
+    const privacyOptions = getPrivacyOptions({
+      mask,
+      unmask,
+      block,
+      unblock,
+      ignore,
+      blockClass,
+      blockSelector,
+      maskTextClass,
+      maskTextSelector,
+      ignoreClass,
+    });
+
     this._recordingOptions = {
       maskAllInputs,
       maskAllText,
       maskInputOptions: { ...(maskInputOptions || {}), password: true },
       maskTextFn: maskFn,
       maskInputFn: maskFn,
+      maskAttributeFn: (key, value, el) =>
+        maskAttribute({
+          maskAttributes,
+          maskAllText,
+          privacyOptions,
+          key,
+          value,
+          el,
+        }),
 
-      ...getPrivacyOptions({
-        mask,
-        unmask,
-        block,
-        unblock,
-        ignore,
-        blockClass,
-        blockSelector,
-        maskTextClass,
-        maskTextSelector,
-        ignoreClass,
-      }),
+      ...privacyOptions,
 
       // Our defaults
       slimDOMOptions: 'all',
@@ -21498,6 +23194,14 @@ class Replay  {
       // collect fonts, but be aware that `sentry.io` needs to be an allowed
       // origin for playback
       collectFonts: true,
+      errorHandler: (err) => {
+        try {
+          err.__rrweb__ = true;
+        } catch (error) {
+          // ignore errors here
+          // this can happen if the error is frozen or does not allow mutation for other reasons
+        }
+      },
     };
 
     this._initialOptions = {
@@ -21558,7 +23262,7 @@ Sentry.init({ replaysOnErrorSampleRate: ${errorSampleRate} })`,
         : `${this._recordingOptions.blockSelector},${MEDIA_SELECTORS}`;
     }
 
-    if (this._isInitialized && isBrowser()) {
+    if (this._isInitialized && utils.isBrowser()) {
       throw new Error('Multiple Sentry Session Replay instances are not supported');
     }
 
@@ -21579,7 +23283,7 @@ Sentry.init({ replaysOnErrorSampleRate: ${errorSampleRate} })`,
    * Setup and initialize replay container
    */
    setupOnce() {
-    if (!isBrowser()) {
+    if (!utils.isBrowser()) {
       return;
     }
 
@@ -21726,8 +23430,7 @@ function _getMergedNetworkHeaders(headers) {
 exports.Replay = Replay;
 
 
-}).call(this)}).call(this,require('_process'))
-},{"@sentry/core":58,"@sentry/utils":104,"_process":130}],87:[function(require,module,exports){
+},{"@sentry-internal/tracing":21,"@sentry/core":60,"@sentry/utils":109}],91:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -21876,7 +23579,120 @@ function truncateAggregateExceptions(exceptions, maxValueLength) {
 exports.applyAggregateErrorsToEvent = applyAggregateErrorsToEvent;
 
 
-},{"./is.js":106,"./string.js":120}],88:[function(require,module,exports){
+},{"./is.js":111,"./string.js":127}],92:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const object = require('./object.js');
+const stacktrace = require('./stacktrace.js');
+const nodeStackTrace = require('./node-stack-trace.js');
+
+/**
+ * A node.js watchdog timer
+ * @param pollInterval The interval that we expect to get polled at
+ * @param anrThreshold The threshold for when we consider ANR
+ * @param callback The callback to call for ANR
+ * @returns An object with `poll` and `enabled` functions {@link WatchdogReturn}
+ */
+function watchdogTimer(
+  createTimer,
+  pollInterval,
+  anrThreshold,
+  callback,
+) {
+  const timer = createTimer();
+  let triggered = false;
+  let enabled = true;
+
+  setInterval(() => {
+    const diffMs = timer.getTimeMs();
+
+    if (triggered === false && diffMs > pollInterval + anrThreshold) {
+      triggered = true;
+      if (enabled) {
+        callback();
+      }
+    }
+
+    if (diffMs < pollInterval + anrThreshold) {
+      triggered = false;
+    }
+  }, 20);
+
+  return {
+    poll: () => {
+      timer.reset();
+    },
+    enabled: (state) => {
+      enabled = state;
+    },
+  };
+}
+
+// types copied from inspector.d.ts
+
+/**
+ * Converts Debugger.CallFrame to Sentry StackFrame
+ */
+function callFrameToStackFrame(
+  frame,
+  url,
+  getModuleFromFilename,
+) {
+  const filename = url ? url.replace(/^file:\/\//, '') : undefined;
+
+  // CallFrame row/col are 0 based, whereas StackFrame are 1 based
+  const colno = frame.location.columnNumber ? frame.location.columnNumber + 1 : undefined;
+  const lineno = frame.location.lineNumber ? frame.location.lineNumber + 1 : undefined;
+
+  return object.dropUndefinedKeys({
+    filename,
+    module: getModuleFromFilename(filename),
+    function: frame.functionName || '?',
+    colno,
+    lineno,
+    in_app: filename ? nodeStackTrace.filenameIsInApp(filename) : undefined,
+  });
+}
+
+// The only messages we care about
+
+/**
+ * Creates a message handler from the v8 debugger protocol and passed stack frames to the callback when paused.
+ */
+function createDebugPauseMessageHandler(
+  sendCommand,
+  getModuleFromFilename,
+  pausedStackFrames,
+) {
+  // Collect scriptId -> url map so we can look up the filenames later
+  const scripts = new Map();
+
+  return message => {
+    if (message.method === 'Debugger.scriptParsed') {
+      scripts.set(message.params.scriptId, message.params.url);
+    } else if (message.method === 'Debugger.paused') {
+      // copy the frames
+      const callFrames = [...message.params.callFrames];
+      // and resume immediately
+      sendCommand('Debugger.resume');
+      sendCommand('Debugger.disable');
+
+      const stackFrames = stacktrace.stripSentryFramesAndReverse(
+        callFrames.map(frame =>
+          callFrameToStackFrame(frame, scripts.get(frame.location.scriptId), getModuleFromFilename),
+        ),
+      );
+
+      pausedStackFrames(stackFrames);
+    }
+  };
+}
+
+exports.createDebugPauseMessageHandler = createDebugPauseMessageHandler;
+exports.watchdogTimer = watchdogTimer;
+
+
+},{"./node-stack-trace.js":117,"./object.js":120,"./stacktrace.js":126}],93:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -22034,7 +23850,7 @@ exports.baggageHeaderToDynamicSamplingContext = baggageHeaderToDynamicSamplingCo
 exports.dynamicSamplingContextToSentryBaggageHeader = dynamicSamplingContextToSentryBaggageHeader;
 
 
-},{"./is.js":106,"./logger.js":107}],89:[function(require,module,exports){
+},{"./is.js":111,"./logger.js":113}],94:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -22055,6 +23871,10 @@ function htmlTreeAsString(
   elem,
   options = {},
 ) {
+
+  if (!elem) {
+    return '<unknown>';
+  }
 
   // try/catch both:
   // - accessing event.target (see getsentry/raven-js#838, #768)
@@ -22192,7 +24012,7 @@ exports.getLocationHref = getLocationHref;
 exports.htmlTreeAsString = htmlTreeAsString;
 
 
-},{"./is.js":106,"./worldwide.js":129}],90:[function(require,module,exports){
+},{"./is.js":111,"./worldwide.js":136}],95:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const _nullishCoalesce = require('./_nullishCoalesce.js');
@@ -22228,7 +24048,7 @@ async function _asyncNullishCoalesce(lhs, rhsFn) {
 exports._asyncNullishCoalesce = _asyncNullishCoalesce;
 
 
-},{"./_nullishCoalesce.js":93}],91:[function(require,module,exports){
+},{"./_nullishCoalesce.js":98}],96:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -22291,7 +24111,7 @@ async function _asyncOptionalChain(ops) {
 exports._asyncOptionalChain = _asyncOptionalChain;
 
 
-},{}],92:[function(require,module,exports){
+},{}],97:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const _asyncOptionalChain = require('./_asyncOptionalChain.js');
@@ -22327,7 +24147,7 @@ async function _asyncOptionalChainDelete(ops) {
 exports._asyncOptionalChainDelete = _asyncOptionalChainDelete;
 
 
-},{"./_asyncOptionalChain.js":91}],93:[function(require,module,exports){
+},{"./_asyncOptionalChain.js":96}],98:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // https://github.com/alangpierce/sucrase/tree/265887868966917f3b924ce38dfad01fbab1329f
@@ -22383,7 +24203,7 @@ function _nullishCoalesce(lhs, rhsFn) {
 exports._nullishCoalesce = _nullishCoalesce;
 
 
-},{}],94:[function(require,module,exports){
+},{}],99:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -22446,7 +24266,7 @@ function _optionalChain(ops) {
 exports._optionalChain = _optionalChain;
 
 
-},{}],95:[function(require,module,exports){
+},{}],100:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const _optionalChain = require('./_optionalChain.js');
@@ -22483,7 +24303,7 @@ function _optionalChainDelete(ops) {
 exports._optionalChainDelete = _optionalChainDelete;
 
 
-},{"./_optionalChain.js":94}],96:[function(require,module,exports){
+},{"./_optionalChain.js":99}],101:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const _asyncNullishCoalesce = require('./_asyncNullishCoalesce.js');
@@ -22503,7 +24323,7 @@ exports._optionalChain = _optionalChain._optionalChain;
 exports._optionalChainDelete = _optionalChainDelete._optionalChainDelete;
 
 
-},{"./_asyncNullishCoalesce.js":90,"./_asyncOptionalChain.js":91,"./_asyncOptionalChainDelete.js":92,"./_nullishCoalesce.js":93,"./_optionalChain.js":94,"./_optionalChainDelete.js":95}],97:[function(require,module,exports){
+},{"./_asyncNullishCoalesce.js":95,"./_asyncOptionalChain.js":96,"./_asyncOptionalChainDelete.js":97,"./_nullishCoalesce.js":98,"./_optionalChain.js":99,"./_optionalChainDelete.js":100}],102:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -22574,7 +24394,7 @@ function makeFifoCache(
 exports.makeFifoCache = makeFifoCache;
 
 
-},{}],98:[function(require,module,exports){
+},{}],103:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const envelope = require('./envelope.js');
@@ -22603,7 +24423,7 @@ function createClientReportEnvelope(
 exports.createClientReportEnvelope = createClientReportEnvelope;
 
 
-},{"./envelope.js":101,"./time.js":123}],99:[function(require,module,exports){
+},{"./envelope.js":106,"./time.js":130}],104:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const logger = require('./logger.js');
@@ -22735,7 +24555,7 @@ exports.dsnToString = dsnToString;
 exports.makeDsn = makeDsn;
 
 
-},{"./logger.js":107}],100:[function(require,module,exports){
+},{"./logger.js":113}],105:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /*
@@ -22774,7 +24594,7 @@ exports.getSDKSource = getSDKSource;
 exports.isBrowserBundle = isBrowserBundle;
 
 
-},{}],101:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const dsn = require('./dsn.js');
@@ -22967,6 +24787,8 @@ const ITEM_TYPE_TO_DATA_CATEGORY_MAP = {
   replay_event: 'replay',
   replay_recording: 'replay',
   check_in: 'monitor',
+  // TODO: This is a temporary workaround until we have a proper data category for metrics
+  statsd: 'unknown',
 };
 
 /**
@@ -23000,7 +24822,7 @@ function createEventEnvelopeHeaders(
     event_id: event.event_id ,
     sent_at: new Date().toISOString(),
     ...(sdkInfo && { sdk: sdkInfo }),
-    ...(!!tunnel && { dsn: dsn.dsnToString(dsn$1) }),
+    ...(!!tunnel && dsn$1 && { dsn: dsn.dsnToString(dsn$1) }),
     ...(dynamicSamplingContext && {
       trace: object.dropUndefinedKeys({ ...dynamicSamplingContext }),
     }),
@@ -23019,7 +24841,7 @@ exports.parseEnvelope = parseEnvelope;
 exports.serializeEnvelope = serializeEnvelope;
 
 
-},{"./dsn.js":99,"./normalize.js":112,"./object.js":113}],102:[function(require,module,exports){
+},{"./dsn.js":104,"./normalize.js":119,"./object.js":120}],107:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /** An error emitted by Sentry SDKs and related utilities. */
@@ -23040,7 +24862,7 @@ class SentryError extends Error {
 exports.SentryError = SentryError;
 
 
-},{}],103:[function(require,module,exports){
+},{}],108:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -23072,6 +24894,26 @@ function exceptionFromError(stackParser, error) {
   return exception;
 }
 
+function getMessageForObject(exception) {
+  if ('name' in exception && typeof exception.name === 'string') {
+    let message = `'${exception.name}' captured as exception`;
+
+    if ('message' in exception && typeof exception.message === 'string') {
+      message += ` with message '${exception.message}'`;
+    }
+
+    return message;
+  } else if ('message' in exception && typeof exception.message === 'string') {
+    return exception.message;
+  } else {
+    // This will allow us to group events based on top-level keys
+    // which is much better than creating new group when any key/value change
+    return `Object captured as exception with keys: ${object.extractExceptionKeysForMessage(
+      exception ,
+    )}`;
+  }
+}
+
 /**
  * Builds and Event from a Exception
  * @hidden
@@ -23092,10 +24934,6 @@ function eventFromUnknownInput(
 
   if (!is.isError(exception)) {
     if (is.isPlainObject(exception)) {
-      // This will allow us to group events based on top-level keys
-      // which is much better than creating new group when any key/value change
-      const message = `Non-Error exception captured with keys: ${object.extractExceptionKeysForMessage(exception)}`;
-
       const hub = getCurrentHub();
       const client = hub.getClient();
       const normalizeDepth = client && client.getOptions().normalizeDepth;
@@ -23103,6 +24941,7 @@ function eventFromUnknownInput(
         scope.setExtra('__serialized__', normalize.normalizeToSize(exception, normalizeDepth));
       });
 
+      const message = getMessageForObject(exception);
       ex = (hint && hint.syntheticException) || new Error(message);
       (ex ).message = message;
     } else {
@@ -23170,7 +25009,7 @@ exports.exceptionFromError = exceptionFromError;
 exports.parseStackFrames = parseStackFrames;
 
 
-},{"./is.js":106,"./misc.js":109,"./normalize.js":112,"./object.js":113}],104:[function(require,module,exports){
+},{"./is.js":111,"./misc.js":116,"./normalize.js":119,"./object.js":120}],109:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const aggregateErrors = require('./aggregate-errors.js');
@@ -23180,6 +25019,7 @@ const error = require('./error.js');
 const worldwide = require('./worldwide.js');
 const instrument = require('./instrument.js');
 const is = require('./is.js');
+const isBrowser = require('./isBrowser.js');
 const logger = require('./logger.js');
 const memo = require('./memo.js');
 const misc = require('./misc.js');
@@ -23205,6 +25045,9 @@ const url = require('./url.js');
 const userIntegrations = require('./userIntegrations.js');
 const cache = require('./cache.js');
 const eventbuilder = require('./eventbuilder.js');
+const anr = require('./anr.js');
+const lru = require('./lru.js');
+const nodeStackTrace = require('./node-stack-trace.js');
 const escapeStringForRegex = require('./vendor/escapeStringForRegex.js');
 const supportsHistory = require('./vendor/supportsHistory.js');
 
@@ -23242,6 +25085,7 @@ exports.isString = is.isString;
 exports.isSyntheticEvent = is.isSyntheticEvent;
 exports.isThenable = is.isThenable;
 exports.isVueViewModel = is.isVueViewModel;
+exports.isBrowser = isBrowser.isBrowser;
 exports.CONSOLE_LEVELS = logger.CONSOLE_LEVELS;
 exports.consoleSandbox = logger.consoleSandbox;
 exports.logger = logger.logger;
@@ -23353,11 +25197,15 @@ exports.eventFromMessage = eventbuilder.eventFromMessage;
 exports.eventFromUnknownInput = eventbuilder.eventFromUnknownInput;
 exports.exceptionFromError = eventbuilder.exceptionFromError;
 exports.parseStackFrames = eventbuilder.parseStackFrames;
+exports.createDebugPauseMessageHandler = anr.createDebugPauseMessageHandler;
+exports.watchdogTimer = anr.watchdogTimer;
+exports.LRUMap = lru.LRUMap;
+exports.filenameIsInApp = nodeStackTrace.filenameIsInApp;
 exports.escapeStringForRegex = escapeStringForRegex.escapeStringForRegex;
 exports.supportsHistory = supportsHistory.supportsHistory;
 
 
-},{"./aggregate-errors.js":87,"./baggage.js":88,"./browser.js":89,"./cache.js":97,"./clientreport.js":98,"./dsn.js":99,"./env.js":100,"./envelope.js":101,"./error.js":102,"./eventbuilder.js":103,"./instrument.js":105,"./is.js":106,"./logger.js":107,"./memo.js":108,"./misc.js":109,"./node.js":111,"./normalize.js":112,"./object.js":113,"./path.js":114,"./promisebuffer.js":115,"./ratelimit.js":116,"./requestdata.js":117,"./severity.js":118,"./stacktrace.js":119,"./string.js":120,"./supports.js":121,"./syncpromise.js":122,"./time.js":123,"./tracing.js":124,"./url.js":125,"./userIntegrations.js":126,"./vendor/escapeStringForRegex.js":127,"./vendor/supportsHistory.js":128,"./worldwide.js":129}],105:[function(require,module,exports){
+},{"./aggregate-errors.js":91,"./anr.js":92,"./baggage.js":93,"./browser.js":94,"./cache.js":102,"./clientreport.js":103,"./dsn.js":104,"./env.js":105,"./envelope.js":106,"./error.js":107,"./eventbuilder.js":108,"./instrument.js":110,"./is.js":111,"./isBrowser.js":112,"./logger.js":113,"./lru.js":114,"./memo.js":115,"./misc.js":116,"./node-stack-trace.js":117,"./node.js":118,"./normalize.js":119,"./object.js":120,"./path.js":121,"./promisebuffer.js":122,"./ratelimit.js":123,"./requestdata.js":124,"./severity.js":125,"./stacktrace.js":126,"./string.js":127,"./supports.js":128,"./syncpromise.js":129,"./time.js":130,"./tracing.js":131,"./url.js":132,"./userIntegrations.js":133,"./vendor/escapeStringForRegex.js":134,"./vendor/supportsHistory.js":135,"./worldwide.js":136}],110:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -23595,6 +25443,8 @@ function instrumentXHR() {
 
   object.fill(xhrproto, 'open', function (originalOpen) {
     return function ( ...args) {
+      const startTimestamp = Date.now();
+
       const url = args[1];
       const xhrInfo = (this[SENTRY_XHR_DATA_KEY] = {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -23629,7 +25479,7 @@ function instrumentXHR() {
           triggerHandlers('xhr', {
             args: args ,
             endTimestamp: Date.now(),
-            startTimestamp: Date.now(),
+            startTimestamp,
             xhr: this,
           } );
         }
@@ -23738,31 +25588,24 @@ function instrumentHistory() {
   object.fill(WINDOW.history, 'replaceState', historyReplacementFunction);
 }
 
-const debounceDuration = 1000;
+const DEBOUNCE_DURATION = 1000;
 let debounceTimerID;
 let lastCapturedEvent;
 
 /**
- * Decide whether the current event should finish the debounce of previously captured one.
- * @param previous previously captured event
- * @param current event to be captured
+ * Check whether two DOM events are similar to eachother. For example, two click events on the same button.
  */
-function shouldShortcircuitPreviousDebounce(previous, current) {
-  // If there was no previous event, it should always be swapped for the new one.
-  if (!previous) {
-    return true;
-  }
-
+function areSimilarDomEvents(a, b) {
   // If both events have different type, then user definitely performed two separate actions. e.g. click + keypress.
-  if (previous.type !== current.type) {
-    return true;
+  if (a.type !== b.type) {
+    return false;
   }
 
   try {
     // If both events have the same type, it's still possible that actions were performed on different targets.
     // e.g. 2 clicks on different buttons.
-    if (previous.target !== current.target) {
-      return true;
+    if (a.target !== b.target) {
+      return false;
     }
   } catch (e) {
     // just accessing `target` property can throw an exception in some rare circumstances
@@ -23772,7 +25615,7 @@ function shouldShortcircuitPreviousDebounce(previous, current) {
   // If both events have the same type _and_ same `target` (an element which triggered an event, _not necessarily_
   // to which an event listener was attached), we treat them as the same action, as we want to capture
   // only one breadcrumb. e.g. multiple clicks on the same button, or typing inside a user input box.
-  return false;
+  return true;
 }
 
 /**
@@ -23817,7 +25660,7 @@ function makeDOMEventHandler(handler, globalListener = false) {
     // It's possible this handler might trigger multiple times for the same
     // event (e.g. event propagation through node ancestors).
     // Ignore if we've already captured that event.
-    if (!event || lastCapturedEvent === event) {
+    if (!event || event['_sentryCaptured']) {
       return;
     }
 
@@ -23826,20 +25669,15 @@ function makeDOMEventHandler(handler, globalListener = false) {
       return;
     }
 
+    // Mark event as "seen"
+    object.addNonEnumerableProperty(event, '_sentryCaptured', true);
+
     const name = event.type === 'keypress' ? 'input' : event.type;
 
-    // If there is no debounce timer, it means that we can safely capture the new event and store it for future comparisons.
-    if (debounceTimerID === undefined) {
-      handler({
-        event: event,
-        name,
-        global: globalListener,
-      });
-      lastCapturedEvent = event;
-    }
-    // If there is a debounce awaiting, see if the new event is different enough to treat it as a unique one.
+    // If there is no last captured event, it means that we can safely capture the new event and store it for future comparisons.
+    // If there is a last captured event, see if the new event is different enough to treat it as a unique one.
     // If that's the case, emit the previous event and store locally the newly-captured DOM event.
-    else if (shouldShortcircuitPreviousDebounce(lastCapturedEvent, event)) {
+    if (lastCapturedEvent === undefined || !areSimilarDomEvents(lastCapturedEvent, event)) {
       handler({
         event: event,
         name,
@@ -23851,8 +25689,8 @@ function makeDOMEventHandler(handler, globalListener = false) {
     // Start a new debounce timer that will prevent us from capturing multiple events that should be grouped together.
     clearTimeout(debounceTimerID);
     debounceTimerID = WINDOW.setTimeout(() => {
-      debounceTimerID = undefined;
-    }, debounceDuration);
+      lastCapturedEvent = undefined;
+    }, DEBOUNCE_DURATION);
   };
 }
 
@@ -24008,7 +25846,7 @@ exports.parseFetchArgs = parseFetchArgs;
 exports.resetInstrumentationHandlers = resetInstrumentationHandlers;
 
 
-},{"./is.js":106,"./logger.js":107,"./object.js":113,"./stacktrace.js":119,"./supports.js":121,"./vendor/supportsHistory.js":128,"./worldwide.js":129}],106:[function(require,module,exports){
+},{"./is.js":111,"./logger.js":113,"./object.js":120,"./stacktrace.js":126,"./supports.js":128,"./vendor/supportsHistory.js":135,"./worldwide.js":136}],111:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -24216,7 +26054,30 @@ exports.isThenable = isThenable;
 exports.isVueViewModel = isVueViewModel;
 
 
-},{}],107:[function(require,module,exports){
+},{}],112:[function(require,module,exports){
+(function (process){(function (){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const node = require('./node.js');
+
+/**
+ * Returns true if we are in the browser.
+ */
+function isBrowser() {
+  // eslint-disable-next-line no-restricted-globals
+  return typeof window !== 'undefined' && (!node.isNodeEnv() || isElectronNodeRenderer());
+}
+
+// Electron renderers with nodeIntegration enabled are detected as Node.js so we specifically test for them
+function isElectronNodeRenderer() {
+  return typeof process !== 'undefined' && (process ).type === 'renderer';
+}
+
+exports.isBrowser = isBrowser;
+
+
+}).call(this)}).call(this,require('_process'))
+},{"./node.js":118,"_process":137}],113:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const worldwide = require('./worldwide.js');
@@ -24275,6 +26136,7 @@ function makeLogger() {
     disable: () => {
       enabled = false;
     },
+    isEnabled: () => enabled,
   };
 
   if ((typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__)) {
@@ -24305,7 +26167,73 @@ exports.logger = logger;
 exports.originalConsoleMethods = originalConsoleMethods;
 
 
-},{"./worldwide.js":129}],108:[function(require,module,exports){
+},{"./worldwide.js":136}],114:[function(require,module,exports){
+Object.defineProperty(exports, '__esModule', { value: true });
+
+/** A simple Least Recently Used map */
+class LRUMap {
+
+   constructor(  _maxSize) {this._maxSize = _maxSize;
+    this._cache = new Map();
+  }
+
+  /** Get the current size of the cache */
+   get size() {
+    return this._cache.size;
+  }
+
+  /** Get an entry or undefined if it was not in the cache. Re-inserts to update the recently used order */
+   get(key) {
+    const value = this._cache.get(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    // Remove and re-insert to update the order
+    this._cache.delete(key);
+    this._cache.set(key, value);
+    return value;
+  }
+
+  /** Insert an entry and evict an older entry if we've reached maxSize */
+   set(key, value) {
+    if (this._cache.size >= this._maxSize) {
+      // keys() returns an iterator in insertion order so keys().next() gives us the oldest key
+      this._cache.delete(this._cache.keys().next().value);
+    }
+    this._cache.set(key, value);
+  }
+
+  /** Remove an entry and return the entry if it was in the cache */
+   remove(key) {
+    const value = this._cache.get(key);
+    if (value) {
+      this._cache.delete(key);
+    }
+    return value;
+  }
+
+  /** Clear all entries */
+   clear() {
+    this._cache.clear();
+  }
+
+  /** Get all the keys */
+   keys() {
+    return Array.from(this._cache.keys());
+  }
+
+  /** Get all the values */
+   values() {
+    const values = [];
+    this._cache.forEach(value => values.push(value));
+    return values;
+  }
+}
+
+exports.LRUMap = LRUMap;
+
+
+},{}],115:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -24354,7 +26282,7 @@ function memoBuilder() {
 exports.memoBuilder = memoBuilder;
 
 
-},{}],109:[function(require,module,exports){
+},{}],116:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const object = require('./object.js');
@@ -24568,8 +26496,31 @@ exports.parseSemver = parseSemver;
 exports.uuid4 = uuid4;
 
 
-},{"./object.js":113,"./string.js":120,"./worldwide.js":129}],110:[function(require,module,exports){
+},{"./object.js":120,"./string.js":127,"./worldwide.js":136}],117:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
+
+/**
+ * Does this filename look like it's part of the app code?
+ */
+function filenameIsInApp(filename, isNative = false) {
+  const isInternal =
+    isNative ||
+    (filename &&
+      // It's not internal if it's an absolute linux path
+      !filename.startsWith('/') &&
+      // It's not internal if it's an absolute windows path
+      !filename.includes(':\\') &&
+      // It's not internal if the path is starting with a dot
+      !filename.startsWith('.') &&
+      // It's not internal if the frame has a protocol. In node, this is usually the case if the file got pre-processed with a bundler like webpack
+      !filename.match(/^[a-zA-Z]([a-zA-Z0-9.\-+])*:\/\//)); // Schema from: https://stackoverflow.com/a/3641782
+
+  // in_app is all that's not an internal Node function or a module within node_modules
+  // note that isNative appears to return true even for node core libraries
+  // see https://github.com/getsentry/raven-node/issues/176
+
+  return !isInternal && filename !== undefined && !filename.includes('node_modules/');
+}
 
 /** Node Stack line parser */
 // eslint-disable-next-line complexity
@@ -24630,31 +26581,13 @@ function node(getModule) {
         filename = lineMatch[5];
       }
 
-      const isInternal =
-        isNative ||
-        (filename &&
-          // It's not internal if it's an absolute linux path
-          !filename.startsWith('/') &&
-          // It's not internal if it's an absolute windows path
-          !filename.includes(':\\') &&
-          // It's not internal if the path is starting with a dot
-          !filename.startsWith('.') &&
-          // It's not internal if the frame has a protocol. In node, this is usually the case if the file got pre-processed with a bundler like webpack
-          !filename.match(/^[a-zA-Z]([a-zA-Z0-9.\-+])*:\/\//)); // Schema from: https://stackoverflow.com/a/3641782
-
-      // in_app is all that's not an internal Node function or a module within node_modules
-      // note that isNative appears to return true even for node core libraries
-      // see https://github.com/getsentry/raven-node/issues/176
-
-      const in_app = !isInternal && filename !== undefined && !filename.includes('node_modules/');
-
       return {
         filename,
         module: getModule ? getModule(filename) : undefined,
         function: functionName,
         lineno: parseInt(lineMatch[3], 10) || undefined,
         colno: parseInt(lineMatch[4], 10) || undefined,
-        in_app,
+        in_app: filenameIsInApp(filename, isNative),
       };
     }
 
@@ -24668,10 +26601,11 @@ function node(getModule) {
   };
 }
 
+exports.filenameIsInApp = filenameIsInApp;
 exports.node = node;
 
 
-},{}],111:[function(require,module,exports){
+},{}],118:[function(require,module,exports){
 (function (process){(function (){
 Object.defineProperty(exports, '__esModule', { value: true });
 
@@ -24745,7 +26679,7 @@ exports.loadModule = loadModule;
 
 
 }).call(this)}).call(this,require('_process'))
-},{"./env.js":100,"_process":130}],112:[function(require,module,exports){
+},{"./env.js":105,"_process":137}],119:[function(require,module,exports){
 (function (global){(function (){
 Object.defineProperty(exports, '__esModule', { value: true });
 
@@ -25020,11 +26954,12 @@ exports.walk = visit;
 
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./is.js":106,"./memo.js":108,"./object.js":113,"./stacktrace.js":119}],113:[function(require,module,exports){
+},{"./is.js":111,"./memo.js":115,"./object.js":120,"./stacktrace.js":126}],120:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const browser = require('./browser.js');
 const is = require('./is.js');
+const logger = require('./logger.js');
 const string = require('./string.js');
 
 /**
@@ -25049,12 +26984,7 @@ function fill(source, name, replacementFactory) {
   // Make sure it's a function first, as we need to attach an empty prototype for `defineProperties` to work
   // otherwise it'll throw "TypeError: Object.defineProperties called on non-object"
   if (typeof wrapped === 'function') {
-    try {
-      markFunctionWrapped(wrapped, original);
-    } catch (_Oo) {
-      // This can throw if multiple fill happens on a global object like XMLHttpRequest
-      // Fixes https://github.com/getsentry/sentry-javascript/issues/2043
-    }
+    markFunctionWrapped(wrapped, original);
   }
 
   source[name] = wrapped;
@@ -25068,12 +26998,16 @@ function fill(source, name, replacementFactory) {
  * @param value The value to which to set the property
  */
 function addNonEnumerableProperty(obj, name, value) {
-  Object.defineProperty(obj, name, {
-    // enumerable: false, // the default, so we can save on bundle size by not explicitly setting it
-    value: value,
-    writable: true,
-    configurable: true,
-  });
+  try {
+    Object.defineProperty(obj, name, {
+      // enumerable: false, // the default, so we can save on bundle size by not explicitly setting it
+      value: value,
+      writable: true,
+      configurable: true,
+    });
+  } catch (o_O) {
+    (typeof __SENTRY_DEBUG__ === 'undefined' || __SENTRY_DEBUG__) && logger.logger.log(`Failed to add non-enumerable property "${name}" to object`, obj);
+  }
 }
 
 /**
@@ -25084,9 +27018,11 @@ function addNonEnumerableProperty(obj, name, value) {
  * @param original the original function that gets wrapped
  */
 function markFunctionWrapped(wrapped, original) {
-  const proto = original.prototype || {};
-  wrapped.prototype = original.prototype = proto;
-  addNonEnumerableProperty(wrapped, '__sentry_original__', original);
+  try {
+    const proto = original.prototype || {};
+    wrapped.prototype = original.prototype = proto;
+    addNonEnumerableProperty(wrapped, '__sentry_original__', original);
+  } catch (o_O) {} // eslint-disable-line no-empty
 }
 
 /**
@@ -25311,7 +27247,7 @@ exports.objectify = objectify;
 exports.urlEncode = urlEncode;
 
 
-},{"./browser.js":89,"./is.js":106,"./string.js":120}],114:[function(require,module,exports){
+},{"./browser.js":94,"./is.js":111,"./logger.js":113,"./string.js":127}],121:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // Slightly modified (no IE8 support, ES6) and transcribed to TypeScript
@@ -25533,7 +27469,7 @@ exports.relative = relative;
 exports.resolve = resolve;
 
 
-},{}],115:[function(require,module,exports){
+},{}],122:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const error = require('./error.js');
@@ -25639,7 +27575,7 @@ function makePromiseBuffer(limit) {
 exports.makePromiseBuffer = makePromiseBuffer;
 
 
-},{"./error.js":102,"./syncpromise.js":122}],116:[function(require,module,exports){
+},{"./error.js":107,"./syncpromise.js":129}],123:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // Intentionally keeping the key broad, as we don't know for sure what rate limit headers get returned from backend
@@ -25744,7 +27680,7 @@ exports.parseRetryAfterHeader = parseRetryAfterHeader;
 exports.updateRateLimits = updateRateLimits;
 
 
-},{}],117:[function(require,module,exports){
+},{}],124:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -26065,7 +28001,7 @@ exports.extractPathForTransaction = extractPathForTransaction;
 exports.extractRequestData = extractRequestData;
 
 
-},{"./is.js":106,"./normalize.js":112,"./url.js":125}],118:[function(require,module,exports){
+},{"./is.js":111,"./normalize.js":119,"./url.js":132}],125:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // Note: Ideally the `SeverityLevel` type would be derived from `validSeverityLevels`, but that would mean either
@@ -26107,7 +28043,7 @@ exports.severityLevelFromString = severityLevelFromString;
 exports.validSeverityLevels = validSeverityLevels;
 
 
-},{}],119:[function(require,module,exports){
+},{}],126:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const nodeStackTrace = require('./node-stack-trace.js');
@@ -26255,6 +28191,7 @@ function nodeStackLineParser(getModule) {
   return [90, nodeStackTrace.node(getModule)];
 }
 
+exports.filenameIsInApp = nodeStackTrace.filenameIsInApp;
 exports.createStackParser = createStackParser;
 exports.getFunctionName = getFunctionName;
 exports.nodeStackLineParser = nodeStackLineParser;
@@ -26262,7 +28199,7 @@ exports.stackParserFromStackParserOptions = stackParserFromStackParserOptions;
 exports.stripSentryFramesAndReverse = stripSentryFramesAndReverse;
 
 
-},{"./node-stack-trace.js":110}],120:[function(require,module,exports){
+},{"./node-stack-trace.js":117}],127:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -26411,7 +28348,7 @@ exports.stringMatchesSomePattern = stringMatchesSomePattern;
 exports.truncate = truncate;
 
 
-},{"./is.js":106}],121:[function(require,module,exports){
+},{"./is.js":111}],128:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const logger = require('./logger.js');
@@ -26583,7 +28520,7 @@ exports.supportsReferrerPolicy = supportsReferrerPolicy;
 exports.supportsReportingObserver = supportsReportingObserver;
 
 
-},{"./logger.js":107,"./worldwide.js":129}],122:[function(require,module,exports){
+},{"./logger.js":113,"./worldwide.js":136}],129:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const is = require('./is.js');
@@ -26781,7 +28718,7 @@ exports.rejectedSyncPromise = rejectedSyncPromise;
 exports.resolvedSyncPromise = resolvedSyncPromise;
 
 
-},{"./is.js":106}],123:[function(require,module,exports){
+},{"./is.js":111}],130:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const node = require('./node.js');
@@ -26972,7 +28909,7 @@ exports.timestampWithMs = timestampWithMs;
 exports.usingPerformanceAPI = usingPerformanceAPI;
 
 
-},{"./node.js":111,"./worldwide.js":129}],124:[function(require,module,exports){
+},{"./node.js":118,"./worldwide.js":136}],131:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const baggage = require('./baggage.js');
@@ -27073,7 +29010,7 @@ exports.generateSentryTraceHeader = generateSentryTraceHeader;
 exports.tracingContextFromHeaders = tracingContextFromHeaders;
 
 
-},{"./baggage.js":88,"./misc.js":109}],125:[function(require,module,exports){
+},{"./baggage.js":93,"./misc.js":116}],132:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -27152,7 +29089,7 @@ exports.parseUrl = parseUrl;
 exports.stripUrlQueryAndFragment = stripUrlQueryAndFragment;
 
 
-},{}],126:[function(require,module,exports){
+},{}],133:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 /**
@@ -27255,7 +29192,7 @@ function addOrUpdateIntegrationInFunction(
 exports.addOrUpdateIntegration = addOrUpdateIntegration;
 
 
-},{}],127:[function(require,module,exports){
+},{}],134:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 // Based on https://github.com/sindresorhus/escape-string-regexp but with modifications to:
@@ -27296,7 +29233,7 @@ function escapeStringForRegex(regexString) {
 exports.escapeStringForRegex = escapeStringForRegex;
 
 
-},{}],128:[function(require,module,exports){
+},{}],135:[function(require,module,exports){
 Object.defineProperty(exports, '__esModule', { value: true });
 
 const worldwide = require('../worldwide.js');
@@ -27329,7 +29266,7 @@ function supportsHistory() {
 exports.supportsHistory = supportsHistory;
 
 
-},{"../worldwide.js":129}],129:[function(require,module,exports){
+},{"../worldwide.js":136}],136:[function(require,module,exports){
 (function (global){(function (){
 Object.defineProperty(exports, '__esModule', { value: true });
 
@@ -27407,7 +29344,7 @@ exports.getGlobalSingleton = getGlobalSingleton;
 
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],130:[function(require,module,exports){
+},{}],137:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -27593,5 +29530,5 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}]},{},[33])(33)
+},{}]},{},[34])(34)
 });

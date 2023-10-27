@@ -29,16 +29,53 @@ from weblate.utils.errors import report_error
 from weblate.utils.stats import CategoryLanguage, ProjectLanguage
 from weblate.vcs.git import LocalRepository
 
+
+def key_name(instance):
+    return instance.name if hasattr(instance, "name") else instance.component.name
+
+
+def key_translated(instance):
+    return instance.stats.translated_percent
+
+
+def key_untranslated(instance):
+    return instance.stats.todo
+
+
+def key_untranslated_words(instance):
+    return instance.stats.todo_words
+
+
+def key_untranslated_chars(instance):
+    return instance.stats.todo_chars
+
+
+def key_nottranslated(instance):
+    return instance.stats.nottranslated
+
+
+def key_checks(instance):
+    return instance.stats.allchecks
+
+
+def key_suggestions(instance):
+    return instance.stats.suggestions
+
+
+def key_comments(instance):
+    return instance.stats.comments
+
+
 SORT_KEYS = {
-    "name": lambda x: x.name if hasattr(x, "name") else x.component.name,
-    "translated": lambda x: x.stats.translated_percent,
-    "untranslated": lambda x: x.stats.todo,
-    "untranslated_words": lambda x: x.stats.todo_words,
-    "untranslated_chars": lambda x: x.stats.todo_chars,
-    "nottranslated": lambda x: x.stats.nottranslated,
-    "checks": lambda x: x.stats.allchecks,
-    "suggestions": lambda x: x.stats.suggestions,
-    "comments": lambda x: x.stats.comments,
+    "name": key_name,
+    "translated": key_translated,
+    "untranslated": key_untranslated,
+    "untranslated_words": key_untranslated_words,
+    "untranslated_chars": key_untranslated_chars,
+    "nottranslated": key_nottranslated,
+    "checks": key_checks,
+    "suggestions": key_suggestions,
+    "comments": key_comments,
 }
 
 
@@ -359,15 +396,22 @@ def iter_files(filenames):
             yield filename
 
 
-def zip_download(root: str, filenames: list[str], name: str = "translations"):
+def zip_download(
+    root: str,
+    filenames: list[str],
+    name: str = "translations",
+    extra: dict[str, bytes] | None = None,
+):
     response = HttpResponse(content_type="application/zip")
     with ZipFile(response, "w") as zipfile:
         for filename in iter_files(filenames):
             try:
-                with open(filename, "rb") as handle:
-                    zipfile.writestr(os.path.relpath(filename, root), handle.read())
+                zipfile.write(filename, arcname=os.path.relpath(filename, root))
             except FileNotFoundError:
                 continue
+        if extra:
+            for filename, content in extra.items():
+                zipfile.writestr(filename, content)
     response["Content-Disposition"] = f'attachment; filename="{name}.zip"'
     return response
 
@@ -391,9 +435,7 @@ def download_translation_file(
         if query_string:
             units = units.search(query_string)
         exporter.add_units(units)
-        response = exporter.get_response(
-            f"{{project}}-{translation.component.slug}-{{language}}.{{extension}}"
-        )
+        response = exporter.get_response()
     else:
         # Force flushing pending units
         try:

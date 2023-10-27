@@ -36,6 +36,91 @@ Depending on your setup and experience, choose an appropriate installation metho
 * :doc:`install/openshift`
 * :doc:`install/kubernetes`
 
+
+Architecture overview
+---------------------
+
+.. graphviz::
+
+   digraph architecture {
+      graph [fontname="sans-serif",
+         fontsize=10,
+         newrank=true,
+         rankdir=LR,
+         splines=ortho
+      ];
+      node [fontname="sans-serif",
+         fontsize=10,
+         height=0,
+         margin=.15,
+         shape=box
+      ];
+      edge [fontname="sans-serif",
+         fontsize=10
+      ];
+      subgraph cluster_thirdparty {
+         graph [color=lightgrey,
+            label="Third-party services",
+            style=filled
+         ];
+         mt	[label="Machine translation",
+            style=dotted];
+         sentry	[label="Sentry\nError collection",
+            style=dotted];
+         mail	[label="E-mail server"];
+         auth	[label="SSO\nAuthentication provider",
+            style=dotted];
+      }
+      subgraph cluster_ingress {
+         graph [color=lightgrey,
+            label=Ingress,
+            style=filled
+         ];
+         web	[label="Web server",
+            shape=hexagon];
+      }
+      subgraph cluster_weblate {
+         graph [color=lightgrey,
+            label="Weblate code-base",
+            style=filled
+         ];
+         celery	[fillcolor="#144d3f",
+            fontcolor=white,
+            label="Celery workers",
+            style=filled];
+         wsgi	[fillcolor="#144d3f",
+            fontcolor=white,
+            label="WSGI server",
+            style=filled];
+      }
+      subgraph cluster_services {
+         graph [color=lightgrey,
+            label=Services,
+            style=filled
+         ];
+         redis	[label="Redis\nTask queue\nCache",
+            shape=cylinder];
+         db	[label="PostgreSQL\nDatabase",
+            shape=cylinder];
+         fs	[label=Filesystem,
+            shape=cylinder];
+      }
+      web -> wsgi;
+      web -> fs;
+      celery -> mt	[style=dotted];
+      celery -> sentry	[style=dotted];
+      celery -> mail;
+      celery -> redis;
+      celery -> db;
+      celery -> fs;
+      wsgi -> mt	[style=dotted];
+      wsgi -> sentry	[style=dotted];
+      wsgi -> auth	[style=dotted];
+      wsgi -> redis;
+      wsgi -> db;
+      wsgi -> fs;
+   }
+
 .. _requirements:
 
 Software requirements
@@ -56,9 +141,10 @@ Other services
 Weblate is using other services for its operation. You will need at least
 following services running:
 
-* PostgreSQL database server, see :ref:`database-setup`.
+* PostgreSQL database server for storing all the content, see :ref:`database-setup`.
 * Redis server for cache and tasks queue, see :ref:`celery`.
 * SMTP server for outgoing e-mail, see :ref:`out-mail`.
+* Filesystem storage (networked if you plan to scale Weblate horizontally) for storing VCS repositories.
 
 .. _python-deps:
 
@@ -84,46 +170,88 @@ Python Social Auth
 Django REST Framework
     https://www.django-rest-framework.org/
 
-.. _optional-deps:
+.. Table is generated using scripts/show-extras
 
-Optional dependencies
-+++++++++++++++++++++
+.. list-table:: Optional dependencies
+     :header-rows: 1
 
-Following modules are necessary for some Weblate features. You can find all
-of them in :file:`requirements-optional.txt`.
+     * - pip extra
+       - Python Package
+       - Weblate feature
 
-``Mercurial`` (optional for :ref:`vcs-mercurial` repositories support)
-    https://www.mercurial-scm.org/
-``python-akismet`` (optional for :ref:`spam-protection`)
-    https://github.com/Nekmo/python-akismet
-``Zeep`` (optional for :ref:`mt-microsoft-terminology`)
-    https://docs.python-zeep.org/
 
-.. hint::
+     * - ``Amazon``
+       - `boto3 <https://pypi.org/project/boto3>`_
+       - :ref:`mt-aws`
 
-   When installing using pip, you can directly specify desired features when installing:
 
-   .. code-block:: sh
+     * - ``LDAP``
+       - `django-auth-ldap <https://pypi.org/project/django-auth-ldap>`_
+       - :ref:`ldap-auth`
 
-      pip install "Weblate[PHP,Fluent]"
 
-   Or you can install Weblate with all optional features:
+     * - ``zxcvbn``
+       - `django-zxcvbn-password <https://pypi.org/project/django-zxcvbn-password>`_
+       - :ref:`password-authentication`
 
-   .. code-block:: sh
 
-      pip install "Weblate[all]"
+     * - ``Gerrit``
+       - `git-review <https://pypi.org/project/git-review>`_
+       - :ref:`vcs-gerrit`
 
-   Or you can install Weblate without any optional features:
 
-   .. code-block:: sh
+     * - ``Google``
+       - `google-cloud-translate <https://pypi.org/project/google-cloud-translate>`_
+       - :ref:`mt-google-translate-api-v3`
 
-      pip install Weblate
 
-Database backend dependencies
-+++++++++++++++++++++++++++++
+     * - ``Mercurial``
+       - `Mercurial <https://pypi.org/project/Mercurial>`_
+       - :ref:`vcs-mercurial`
 
-Weblate supports PostgreSQL, MySQL and MariaDB, see :ref:`database-setup` and
-backends documentation for more details.
+
+     * - ``MySQL``
+       - `mysqlclient <https://pypi.org/project/mysqlclient>`_
+       - MySQL or MariaDB, see :ref:`database-setup`
+
+
+     * - ``Postgres``
+       - `psycopg <https://pypi.org/project/psycopg>`_
+       - PostgreSQL, see :ref:`database-setup`
+
+
+     * - ``Antispam``
+       - `python-akismet <https://pypi.org/project/python-akismet>`_
+       - :ref:`spam-protection`
+
+
+     * - ``SAML``
+       - `python3-saml <https://pypi.org/project/python3-saml>`_
+       - :ref:`saml-auth`
+
+
+     * - ``MSTerminology``
+       - `zeep <https://pypi.org/project/zeep>`_
+       - :ref:`mt-microsoft-terminology`
+
+
+When installing using pip, you can directly specify desired features when installing:
+
+.. code-block:: sh
+
+   pip install "Weblate[Postgres,Amazon,SAML]"
+
+Or you can install Weblate with all optional features:
+
+.. code-block:: sh
+
+   pip install "Weblate[all]"
+
+Or you can install Weblate without any optional features:
+
+.. code-block:: sh
+
+   pip install Weblate
 
 Other system requirements
 +++++++++++++++++++++++++
@@ -138,7 +266,7 @@ Pango, Cairo and related header files and GObject introspection data
     https://pypi.org/project/git-review/
 ``git-svn`` (optional for Subversion support)
     https://git-scm.com/docs/git-svn
-``tesseract`` and its data (optional for screenshots OCR)
+``tesseract`` (needed only if :program:`tesserocr` binary wheels are not available for your system)
     https://github.com/tesseract-ocr/tesseract
 ``licensee`` (optional for detecting license when creating component)
     https://github.com/licensee/licensee
@@ -392,6 +520,9 @@ The :file:`settings.py` snippet for PostgreSQL:
             "HOST": "database.example.com",
             # Set to empty string for default
             "PORT": "",
+            # Persistent connections
+            "CONN_MAX_AGE": None,
+            "CONN_HEALTH_CHECKS": True,
         }
     }
 
@@ -404,6 +535,11 @@ about non-existing role during the database migration
 This is known to happen with Azure Database for PostgreSQL, but it's not
 limited to this environment. Please set ``ALTER_ROLE`` to change name of the
 role Weblate should alter during the database migration.
+
+Persistent connections improve Weblate responsiveness, but might require more
+resources for the database server. Please consult
+:setting:`django:CONN_MAX_AGE` and
+:ref:`django:persistent-database-connections` for more info.
 
 .. _mysql:
 
@@ -1456,6 +1592,22 @@ configuration error in the admin interface.
    :doc:`celery:userguide/daemonizing`,
    :doc:`celery:userguide/monitoring`,
    :wladmin:`celery_queues`
+
+.. _minimal-celery:
+
+Single-process Celery setup
++++++++++++++++++++++++++++
+
+In case you have very limited memory, you might want to reduce number of
+Weblate processes. All Celery tasks can be executed in a single process using:
+
+.. code-block:: sh
+
+   celery --app=weblate.utils worker --beat --queues=celery,notify,memory,translate,backup --pool=solo
+
+.. warning::
+
+   This will have a noticeable performance impact on Weblate.
 
 .. _monitoring:
 

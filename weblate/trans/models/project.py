@@ -9,6 +9,7 @@ import os.path
 from datetime import datetime
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count, Q, Value
@@ -26,13 +27,24 @@ from weblate.trans.defines import PROJECT_NAME_LENGTH
 from weblate.trans.mixins import CacheKeyMixin, PathMixin
 from weblate.utils.data import data_dir
 from weblate.utils.site import get_site_url
-from weblate.utils.stats import ProjectStats
+from weblate.utils.stats import ProjectLanguage, ProjectStats
 from weblate.utils.validators import (
     validate_language_aliases,
     validate_project_name,
     validate_project_web,
     validate_slug,
 )
+
+
+class ProjectLanguageFactory(dict):
+    def __init__(self, project: Project):
+        self._project = project
+
+    def __missing__(self, key: Language):
+        return ProjectLanguage(self._project, key)
+
+    def preload(self):
+        return [self[language] for language in self._project.languages]
 
 
 class ProjectQuerySet(models.QuerySet):
@@ -65,6 +77,11 @@ def prefetch_project_flags(projects):
             .annotate(Count("component__id"))
         ):
             lookup[locks["id"]].__dict__["locked"] = locks["component__id__count"] == 0
+
+    # Prefetch source language ids
+    lookup = {project.source_language_cache_key: project for project in projects}
+    for item, value in cache.get_many(lookup.keys()).items():
+        lookup[item].__dict__["source_language_ids"] = value
     return projects
 
 
@@ -130,6 +147,7 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     )
     access_control = models.IntegerField(
         default=settings.DEFAULT_ACCESS_CONTROL,
+        db_index=True,
         choices=ACCESS_CHOICES,
         verbose_name=gettext_lazy("Access control"),
         help_text=gettext_lazy(
@@ -137,6 +155,7 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
             "in the documentation."
         ),
     )
+    # This should match definition in WorkflowSetting
     translation_review = models.BooleanField(
         verbose_name=gettext_lazy("Enable reviews"),
         default=False,
@@ -232,6 +251,7 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
         self.old_access_control = self.access_control
         self.stats = ProjectStats(self)
         self.acting_user = None
+        self.project_languages = ProjectLanguageFactory(self)
 
     def generate_changes(self, old):
         from weblate.trans.models.change import Change
@@ -465,13 +485,25 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     def child_components(self):
         return self.get_child_components_filter(lambda qs: qs)
 
+    @property
+    def source_language_cache_key(self):
+        return f"project-source-language-ids-{self.pk}"
+
+    def invalidate_source_language_cache(self):
+        cache.delete(self.source_language_cache_key)
+
     @cached_property
     def source_language_ids(self):
-        return set(
+        cached = cache.get(self.source_language_cache_key)
+        if cached is not None:
+            return cached
+        result = set(
             self.get_child_components_filter(
                 lambda qs: qs.values_list("source_language_id", flat=True).distinct()
             )
         )
+        cache.set(self.source_language_cache_key, result, 7 * 24 * 3600)
+        return result
 
     def scratch_create_component(
         self,
@@ -565,3 +597,7 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     def do_lock(self, user, lock: bool = True, auto: bool = False):
         for component in self.component_set.iterator():
             component.do_lock(user, lock=lock, auto=auto)
+
+    @property
+    def can_add_category(self):
+        return True

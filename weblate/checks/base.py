@@ -95,15 +95,19 @@ class Check:
 
     def check_target_unit(self, sources, targets, unit):
         """Check single unit, handling plurals."""
-        source = unit.source_string
-        # Check singular
-        if self.check_single(source, targets[0], unit):
-            return True
-        # Do we have more to check?
-        if len(sources) > 1:
-            source = sources[-1]
-        # Check plurals against plural from source
-        return any(self.check_single(source, target, unit) for target in targets[1:])
+        from weblate.lang.models import PluralMapper
+
+        source_plural = unit.translation.component.source_language.plural
+        target_plural = unit.translation.plural
+        if len(sources) != source_plural.number or len(targets) != target_plural.number:
+            return any(
+                self.check_single(sources[-1], target, unit) for target in targets
+            )
+        plural_mapper = PluralMapper(source_plural, target_plural)
+        return any(
+            self.check_single(source, target, unit)
+            for source, target in plural_mapper.zip(sources, targets, unit)
+        )
 
     def check_single(self, source, target, unit):
         """Check for single phrase, not dealing with plurals."""
@@ -196,12 +200,14 @@ class Check:
             lambda m: replacements[m.group(0)], replacement(text)
         )
 
+
+class BatchCheckMixin:
     def handle_batch(self, unit, component):
         component.batched_checks.add(self.check_id)
         return self.check_id in unit.all_checks_names
 
     def check_component(self, component):
-        return []
+        raise NotImplementedError
 
     def perform_batch(self, component):
         from weblate.checks.models import Check
