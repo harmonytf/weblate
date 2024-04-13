@@ -7,15 +7,23 @@
 from __future__ import annotations
 
 import os
+import time
 from contextlib import suppress
-from time import mktime
-from typing import Any
+from typing import TYPE_CHECKING
 from zipfile import ZipFile
 
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBase,
+    HttpResponseRedirect,
+)
 from django.shortcuts import get_object_or_404
+from django.utils.cache import get_conditional_response
 from django.utils.http import http_date
 from django.utils.translation import activate, gettext, gettext_lazy, pgettext_lazy
 from django.views.decorators.gzip import gzip_page
@@ -26,8 +34,17 @@ from weblate.lang.models import Language
 from weblate.trans.models import Category, Component, Project, Translation, Unit
 from weblate.utils import messages
 from weblate.utils.errors import report_error
-from weblate.utils.stats import CategoryLanguage, ProjectLanguage
+from weblate.utils.stats import BaseStats, CategoryLanguage, ProjectLanguage
 from weblate.vcs.git import LocalRepository
+
+if TYPE_CHECKING:
+    from django.db.models import Model
+
+    from weblate.trans.mixins import BaseURLMixin
+
+
+class UnsupportedPathObjectError(Http404):
+    pass
 
 
 def key_name(instance):
@@ -138,10 +155,10 @@ def get_paginator(request, object_list, page_limit=None):
 
 
 class PathViewMixin:
-    supported_path_types = None
+    supported_path_types: tuple[type[Model | BaseURLMixin] | None, ...] = ()
 
     def get_path_object(self):
-        if self.supported_path_types is None:
+        if not self.supported_path_types:
             raise ValueError("Specifying supported path types is required")
         return parse_path(
             self.request, self.kwargs.get("path", ""), self.supported_path_types
@@ -186,25 +203,50 @@ def get_sort_name(request, obj=None):
     }
 
 
-def _parse_path(request, path: tuple[str], *, skip_acl: bool = False):
+def parse_path(  # noqa: C901
+    request,
+    path: list[str] | tuple[str, ...] | None,
+    types: tuple[type[Model | BaseURLMixin] | None, ...],
+    *,
+    skip_acl: bool = False,
+):
+    if None in types and not path:
+        return None
+
+    allowed_types = {x for x in types if x is not None}
+    acting_user = request.user if request else None
+
+    def check_type(cls):
+        if cls not in allowed_types:
+            raise UnsupportedPathObjectError(f"Not supported object type: {cls}")
+
+    if path is None:
+        raise UnsupportedPathObjectError("Missing path")
+
     path = list(path)
 
     # Language URL
     if path[:2] == ["-", "-"] and len(path) == 3:
+        check_type(Language)
         return get_object_or_404(Language, code=path[2])
 
     # First level is always project
     project = get_object_or_404(Project, slug=path.pop(0))
     if not skip_acl:
         request.user.check_access(project)
-    project.acting_user = request.user
+    project.acting_user = acting_user
     if not path:
+        check_type(Project)
         return project
 
     # Project/language special case
     if path[0] == "-" and len(path) == 2:
+        check_type(ProjectLanguage)
         language = get_object_or_404(Language, code=path[1])
         return ProjectLanguage(project, language)
+
+    if not allowed_types & {Component, Category, Translation, Unit}:
+        raise UnsupportedPathObjectError("No remaining supported object type")
 
     # Component/category structure
     current = project
@@ -215,6 +257,7 @@ def _parse_path(request, path: tuple[str], *, skip_acl: bool = False):
         # Category/language special case
         if slug == "-" and len(path) == 1:
             language = get_object_or_404(Language, code=path[0])
+            check_type(CategoryLanguage)
             return CategoryLanguage(current, language)
 
         # Try component first
@@ -222,13 +265,13 @@ def _parse_path(request, path: tuple[str], *, skip_acl: bool = False):
             current = current.component_set.get(slug=slug, **category_args)
             if not skip_acl:
                 request.user.check_access_component(current)
-            current.acting_user = request.user
+            current.acting_user = acting_user
             break
 
         # Try category
         with suppress(Category.DoesNotExist):
             current = current.category_set.get(slug=slug, **category_args)
-            current.acting_user = request.user
+            current.acting_user = acting_user
             category_args = {}
             continue
 
@@ -237,36 +280,37 @@ def _parse_path(request, path: tuple[str], *, skip_acl: bool = False):
 
     # Nothing left, return current object
     if not path:
+        if not isinstance(current, tuple(allowed_types)):
+            raise UnsupportedPathObjectError(
+                f"Not supported object type: {current.__class__}"
+            )
         return current
+
+    if not allowed_types & {Translation, Unit}:
+        raise UnsupportedPathObjectError("No remaining supported object type")
 
     translation = get_object_or_404(current.translation_set, language__code=path.pop(0))
     if not path:
+        check_type(Translation)
         return translation
 
     if len(path) > 1:
-        raise Http404(f"Invalid path left: {'/'.join(path)}")
+        raise UnsupportedPathObjectError(f"Invalid path left: {'/'.join(path)}")
 
     unitid = path.pop(0)
 
     if not unitid.isdigit():
         raise Http404(f"Invalid unit id: {unitid}")
 
+    check_type(Unit)
     return get_object_or_404(translation.unit_set, pk=int(unitid))
 
 
-def parse_path(
-    request, path: list[str] | None, types: tuple[Any], *, skip_acl: bool = False
+def parse_path_units(
+    request,
+    path: list[str] | tuple[str, ...],
+    types: tuple[type[Model | BaseURLMixin] | None, ...],
 ):
-    if None in types and not path:
-        return None
-    types = tuple(x for x in types if x is not None)
-    result = _parse_path(request, path, skip_acl=skip_acl)
-    if not isinstance(result, types):
-        raise Http404(f"Not supported object type: {result}")
-    return result
-
-
-def parse_path_units(request, path: list[str], types: tuple[Any]):
     obj = parse_path(request, path, types)
 
     context = {"components": None, "path_object": obj}
@@ -318,13 +362,16 @@ def parse_path_units(request, path: list[str], types: tuple[Any]):
     return obj, unit_set, context
 
 
-def guess_filemask_from_doc(data):
+def guess_filemask_from_doc(data, docfile=None):
     if "filemask" in data:
         return
 
+    if docfile is None:
+        docfile = data["docfile"]
+
     ext = ""
-    if "docfile" in data and hasattr(data["docfile"], "name"):
-        ext = os.path.splitext(os.path.basename(data["docfile"].name))[1]
+    if hasattr(docfile, "name"):
+        ext = os.path.splitext(os.path.basename(docfile.name))[1]
 
     if not ext and "file_format" in data and data["file_format"] in FILE_FORMATS:
         ext = FILE_FORMATS[data["file_format"]].extension()
@@ -332,10 +379,10 @@ def guess_filemask_from_doc(data):
     data["filemask"] = "{}/{}{}".format(data.get("slug", "translations"), "*", ext)
 
 
-def create_component_from_doc(data):
+def create_component_from_doc(data, docfile):
     # Calculate filename
-    uploaded = data["docfile"]
-    guess_filemask_from_doc(data)
+    uploaded = docfile or data["docfile"]
+    guess_filemask_from_doc(data, uploaded)
     filemask = data["filemask"]
     filename = filemask.replace(
         "*",
@@ -348,6 +395,7 @@ def create_component_from_doc(data):
         project=data["project"],
         slug=data["slug"],
         name=data["name"],
+        category=data.get("category", None),
         template=filename,
         filemask=filemask,
     )
@@ -356,16 +404,17 @@ def create_component_from_doc(data):
     return fake
 
 
-def create_component_from_zip(data):
+def create_component_from_zip(data, zipfile=None):
     # Create fake component (needed to calculate path)
     fake = Component(
         project=data["project"],
+        category=data.get("category", None),
         slug=data["slug"],
         name=data["name"],
     )
 
     # Create repository
-    LocalRepository.from_zip(fake.full_path, data["zipfile"])
+    LocalRepository.from_zip(fake.full_path, zipfile or data["zipfile"])
     return fake
 
 
@@ -382,7 +431,11 @@ def import_message(request, count, message_none, message_ok):
     if count == 0:
         messages.warning(request, message_none)
     else:
-        messages.success(request, message_ok % count)
+        try:
+            message = message_ok % count
+        except TypeError:
+            message = message_ok
+        messages.success(request, message)
 
 
 def iter_files(filenames):
@@ -403,7 +456,7 @@ def zip_download(
     extra: dict[str, bytes] | None = None,
 ):
     response = HttpResponse(content_type="application/zip")
-    with ZipFile(response, "w") as zipfile:
+    with ZipFile(response, "w", strict_timestamps=False) as zipfile:
         for filename in iter_files(filenames):
             try:
                 zipfile.write(filename, arcname=os.path.relpath(filename, root))
@@ -416,6 +469,22 @@ def zip_download(
     return response
 
 
+def handle_last_modified(
+    request: HttpRequest, stats: BaseStats
+) -> tuple[str, HttpResponseBase | None]:
+    last_modified = stats.last_changed
+    if last_modified:
+        last_modified = int(last_modified.timestamp())
+        # Respond with 302/412 response if needed
+        response = get_conditional_response(request, last_modified=last_modified)
+    else:
+        # Use current timestamp if stats do not have any
+        last_modified = int(time.time())
+        response = None
+
+    return http_date(last_modified), response
+
+
 @gzip_page
 def download_translation_file(
     request,
@@ -423,6 +492,10 @@ def download_translation_file(
     fmt: str | None = None,
     query_string: str | None = None,
 ):
+    last_modified_response, response = handle_last_modified(request, translation.stats)
+    if response is not None:
+        return response
+
     if fmt is not None:
         try:
             exporter_cls = EXPORTERS[fmt]
@@ -475,10 +548,7 @@ def download_translation_file(
         # Fill in response headers
         response["Content-Disposition"] = f"attachment; filename={filename}"
 
-    if translation.stats.last_changed:
-        response["Last-Modified"] = http_date(
-            mktime(translation.stats.last_changed.timetuple())
-        )
+    response["Last-Modified"] = last_modified_response
 
     return response
 

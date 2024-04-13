@@ -4,7 +4,7 @@
 
 import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.db.models import Q
@@ -202,9 +202,7 @@ def vcs_service_hook(request, service):
     for obj in enabled_components:
         updates += 1
         LOGGER.info("%s notification will update %s", service_long_name, obj)
-        Change.objects.create(
-            component=obj, action=Change.ACTION_HOOK, details=service_data
-        )
+        obj.change_set.create(action=Change.ACTION_HOOK, details=service_data)
         perform_update.delay("Component", obj.pk)
 
     match_status = {
@@ -306,6 +304,7 @@ def bitbucket_hook_helper(data, request):
     else:
         repo_servers = {"bitbucket.org", urlparse(repo_url).hostname}
         repos = []
+        templates: tuple[str, ...]
         if "scm" not in data["repository"]:
             templates = BITBUCKET_GIT_REPOS + BITBUCKET_HG_REPOS
         elif data["repository"]["scm"] == "hg":
@@ -453,6 +452,13 @@ def pagure_hook_helper(data, request):
     }
 
 
+def expand_quoted(name: str):
+    yield name
+    quoted = quote(name)
+    if quoted != name:
+        yield quoted
+
+
 @register_hook
 def azure_hook_helper(data, request):
     if data.get("eventType") != "git.push":
@@ -488,12 +494,14 @@ def azure_hook_helper(data, request):
         repos = [
             repo.format(
                 organization=organization,
-                project=project,
+                project=e_project,
                 projectId=projectid,
-                repository=repository,
+                repository=e_repository,
                 repositoryId=repositoryid,
             )
             for repo in AZURE_REPOS
+            for e_project in expand_quoted(project)
+            for e_repository in expand_quoted(repository)
         ]
     else:
         repos = [http_url]

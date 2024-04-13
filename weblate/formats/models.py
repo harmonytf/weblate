@@ -65,6 +65,7 @@ class FormatsConf(AppConf):
         "weblate.formats.exporters.CSVExporter",
         "weblate.formats.exporters.XlsxExporter",
         "weblate.formats.exporters.JSONExporter",
+        "weblate.formats.exporters.JSONNestedExporter",
         "weblate.formats.exporters.AndroidResourceExporter",
         "weblate.formats.exporters.StringsExporter",
     )
@@ -88,6 +89,7 @@ class FormatsConf(AppConf):
         "weblate.formats.ttkit.LaravelPhpFormat",
         "weblate.formats.ttkit.RESXFormat",
         "weblate.formats.ttkit.AndroidFormat",
+        "weblate.formats.ttkit.MOKOFormat",
         "weblate.formats.ttkit.JSONFormat",
         "weblate.formats.ttkit.JSONNestedFormat",
         "weblate.formats.ttkit.WebExtensionJSONFormat",
@@ -97,6 +99,7 @@ class FormatsConf(AppConf):
         "weblate.formats.ttkit.GoI18V2JSONFormat",
         "weblate.formats.ttkit.GoTextFormat",
         "weblate.formats.ttkit.ARBFormat",
+        "weblate.formats.ttkit.FormatJSFormat",
         "weblate.formats.ttkit.CSVFormat",
         "weblate.formats.ttkit.CSVUtf8Format",
         "weblate.formats.ttkit.CSVSimpleFormat",

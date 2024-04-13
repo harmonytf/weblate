@@ -25,7 +25,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.1
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     - run: pip install $(grep -E '^(weblate-schemas)==' requirements.txt) -r requirements-lint.txt
@@ -39,7 +39,7 @@ jobs:
         commit_message: 'docs: Update JSON schemas'
     - name: Create Pull Request
       if: github.ref == 'refs/heads/main'
-      uses: peter-evans/create-pull-request@v5
+      uses: peter-evans/create-pull-request@v6
       with:
         branch: create-pull-request/jsonschema-update
         title: 'docs: Update JSON schemas'

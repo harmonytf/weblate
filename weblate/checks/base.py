@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+import sentry_sdk
 from django.http import Http404
 from django.utils.html import conditional_escape, format_html, format_html_join
 from django.utils.translation import gettext
@@ -19,13 +20,15 @@ from weblate.utils.xml import parse_xml
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from django_stubs_ext import StrOrPromise
+
 
 class Check:
     """Basic class for checks."""
 
     check_id = ""
-    name = ""
-    description = ""
+    name: StrOrPromise = ""
+    description: StrOrPromise = ""
     target = False
     source = False
     ignore_untranslated = True
@@ -133,10 +136,6 @@ class Check:
 
         return (src in chars) != (tgt in chars)
 
-    def is_language(self, unit, vals):
-        """Detect whether language is in given list, ignores variants."""
-        return unit.translation.language.base_code in vals
-
     def get_doc_url(self, user=None):
         """Return link to documentation."""
         return get_doc_url("user/checks", self.doc_id, user=user)
@@ -210,6 +209,10 @@ class BatchCheckMixin:
         raise NotImplementedError
 
     def perform_batch(self, component):
+        with sentry_sdk.start_span(op="check.perform_batch", description=self.check_id):
+            self._perform_batch(component)
+
+    def _perform_batch(self, component):
         from weblate.checks.models import Check
         from weblate.trans.models import Component
 

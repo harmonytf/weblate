@@ -32,6 +32,8 @@ elif CI_DATABASE == "postgresql":
     DATABASES["default"]["ENGINE"] = "django.db.backends.postgresql"
     default_user = "postgres"
 else:
+    if not CI_DATABASE:
+        raise ValueError("Missing CI_DATABASE configuration in the environment")
     raise ValueError(f"Not supported database: {CI_DATABASE}")
 
 DATABASES["default"]["HOST"] = os.environ.get("CI_DB_HOST", "")
@@ -66,6 +68,7 @@ CELERY_RESULT_BACKEND = None
 STATS_LAZY = True
 
 VCS_API_DELAY = 0
+VCS_FILE_PROTOCOL = True
 
 # Localize CDN addon
 LOCALIZE_CDN_URL = "https://cdn.example.com/"
@@ -134,14 +137,15 @@ AUTHENTICATION_BACKENDS = (
 # Disable random admin checks trigger
 BACKGROUND_ADMIN_CHECKS = False
 
+# Use weak password hasher for testing
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.MD5PasswordHasher",
+]
+
+# Let the testsuite fail on timezone issues
 warnings.filterwarnings(
     "error",
     r"DateTimeField .* received a naive datetime",
     RuntimeWarning,
     r"django\.db\.models\.fields",
 )
-
-# Generate junit compatible XML for AppVeyor
-if "APPVEYOR" in os.environ:
-    TEST_RUNNER = "xmlrunner.extra.djangotestrunner.XMLTestRunner"
-    TEST_OUTPUT_FILE_NAME = "junit.xml"

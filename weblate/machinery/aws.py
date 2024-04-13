@@ -5,14 +5,14 @@
 import boto3
 from django.utils.functional import cached_property
 
-from .base import MachineTranslation
+from .base import DownloadTranslations, MachineTranslation
 from .forms import AWSMachineryForm
 
 
 class AWSTranslation(MachineTranslation):
     """AWS machine translation."""
 
-    name = "AWS"
+    name = "Amazon Translate"
     max_score = 88
     language_map = {
         "zh_Hant": "zh-TW",
@@ -20,10 +20,14 @@ class AWSTranslation(MachineTranslation):
     }
     settings_form = AWSMachineryForm
 
+    @classmethod
+    def get_identifier(cls):
+        return "aws"
+
     @cached_property
     def client(self):
         return boto3.client(
-            "translate",
+            service_name="translate",
             region_name=self.settings["region"],
             aws_access_key_id=self.settings["key"],
             aws_secret_access_key=self.settings["secret"],
@@ -122,7 +126,7 @@ class AWSTranslation(MachineTranslation):
         unit,
         user,
         threshold: int = 75,
-    ):
+    ) -> DownloadTranslations:
         response = self.client.translate_text(
             Text=text, SourceLanguageCode=source, TargetLanguageCode=language
         )

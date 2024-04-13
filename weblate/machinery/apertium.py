@@ -4,7 +4,7 @@
 
 from functools import reduce
 
-from .base import MachineTranslation
+from .base import DownloadTranslations, MachineTranslation
 from .forms import URLMachineryForm
 
 LANGUAGE_MAP = {
@@ -71,7 +71,7 @@ class ApertiumAPYTranslation(MachineTranslation):
     """Apertium machine translation support."""
 
     name = "Apertium APy"
-    max_score = 90
+    max_score = 88
     settings_form = URLMachineryForm
     request_timeout = 20
 
@@ -108,7 +108,7 @@ class ApertiumAPYTranslation(MachineTranslation):
         unit,
         user,
         threshold: int = 75,
-    ):
+    ) -> DownloadTranslations:
         """Download list of possible translations from Apertium."""
         args = {
             "langpair": f"{source}|{language}",

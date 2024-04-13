@@ -26,16 +26,18 @@ Depending on your setup and experience, choose an appropriate installation metho
 
 * Virtualenv installation, recommended for production setups:
 
-   * :doc:`install/venv-debian`
-   * :doc:`install/venv-suse`
-   * :doc:`install/venv-redhat`
-   * :doc:`install/venv-macos`
+  * :doc:`install/venv-debian`
+  * :doc:`install/venv-suse`
+  * :doc:`install/venv-redhat`
+  * :doc:`install/venv-macos`
 
 * :doc:`install/source`, recommended for development.
 
 * :doc:`install/openshift`
 * :doc:`install/kubernetes`
 
+
+.. _architecture:
 
 Architecture overview
 ---------------------
@@ -146,6 +148,10 @@ following services running:
 * SMTP server for outgoing e-mail, see :ref:`out-mail`.
 * Filesystem storage (networked if you plan to scale Weblate horizontally) for storing VCS repositories.
 
+.. hint::
+
+   :doc:`/admin/install/docker` includes PostgreSQL and Redis, making the installation easier.
+
 .. _python-deps:
 
 Python dependencies
@@ -154,6 +160,12 @@ Python dependencies
 Weblate is written in `Python <https://www.python.org/>`_ and supports Python
 3.9 or newer. You can install dependencies using pip or from your
 distribution packages, full list is available in :file:`requirements.txt`.
+
+.. warning::
+
+   While there is nothing in Weblate itself blocking usage of Python 3.12, there are few outstanding issues:
+
+   * Python 3.12 performs slower than previous versions in some situations, see https://github.com/python/cpython/issues/109049.
 
 Most notable dependencies:
 
@@ -206,7 +218,7 @@ Django REST Framework
 
 
      * - ``Mercurial``
-       - `Mercurial <https://pypi.org/project/Mercurial>`_
+       - `mercurial <https://pypi.org/project/mercurial>`_
        - :ref:`vcs-mercurial`
 
 
@@ -214,6 +226,9 @@ Django REST Framework
        - `mysqlclient <https://pypi.org/project/mysqlclient>`_
        - MySQL or MariaDB, see :ref:`database-setup`
 
+     * - ``OpenAI``
+       - `openai <https://pypi.org/project/openai>`_
+       - :ref:`mt-openai`
 
      * - ``Postgres``
        - `psycopg <https://pypi.org/project/psycopg>`_
@@ -228,11 +243,6 @@ Django REST Framework
      * - ``SAML``
        - `python3-saml <https://pypi.org/project/python3-saml>`_
        - :ref:`saml-auth`
-
-
-     * - ``MSTerminology``
-       - `zeep <https://pypi.org/project/zeep>`_
-       - :ref:`mt-microsoft-terminology`
 
 
 When installing using pip, you can directly specify desired features when installing:
@@ -290,121 +300,32 @@ Python bindings for those you need to install system libraries first - you need
 both Cairo and Pango, which in turn need GLib. All those should be installed
 with development files and GObject introspection data.
 
+.. seealso::
+
+  :doc:`install/venv-debian`,
+  :doc:`install/venv-suse`,
+  :doc:`install/venv-redhat`,
+  :doc:`install/venv-macos`
+
 .. _verify:
 
 Verifying release signatures
 ----------------------------
 
-Weblate release are cryptographically signed by the releasing developer.
-Currently this is Michal Čihař. Fingerprint of his PGP key is:
+Weblate release are cryptographically signed using `Sigstore signatures
+<https://www.sigstore.dev/>`_. The signatures are attached to the GitHub
+release.
 
-.. code-block:: console
+The verification can be performed using `sigstore package
+<https://pypi.org/project/sigstore/>`_. The following example verifies
+signature of the 5.4 release:
 
-    63CB 1DF1 EF12 CF2A C0EE 5A32 9C27 B313 42B7 511D
+.. code-block:: sh
 
-and you can get more identification information from <https://keybase.io/nijel>.
-
-You should verify that the signature matches the archive you have downloaded.
-This way you can be sure that you are using the same code that was released.
-You should also verify the date of the signature to make sure that you
-downloaded the latest version.
-
-Each archive is accompanied with ``.asc`` files which contain the PGP signature
-for it. Once you have both of them in the same folder, you can verify the signature:
-
-.. code-block:: console
-
-   $ gpg --verify Weblate-3.5.tar.xz.asc
-   gpg: assuming signed data in 'Weblate-3.5.tar.xz'
-   gpg: Signature made Ne 3. března 2019, 16:43:15 CET
-   gpg:                using RSA key 87E673AF83F6C3A0C344C8C3F4AA229D4D58C245
-   gpg: Can't check signature: public key not found
-
-As you can see GPG complains that it does not know the public key. At this
-point you should do one of the following steps:
-
-* Use `wkd` to download the key:
-
-.. code-block:: console
-
-   $ gpg --auto-key-locate wkd --locate-keys michal@cihar.com
-   pub   rsa4096 2009-06-17 [SC]
-         63CB1DF1EF12CF2AC0EE5A329C27B31342B7511D
-   uid           [ultimate] Michal Čihař <michal@cihar.com>
-   uid           [ultimate] Michal Čihař <nijel@debian.org>
-   uid           [ultimate] [jpeg image of size 8848]
-   uid           [ultimate] Michal Čihař (Braiins) <michal.cihar@braiins.cz>
-   sub   rsa4096 2009-06-17 [E]
-   sub   rsa4096 2015-09-09 [S]
-
-
-* Download the keyring from `Michal's server <https://cihar.com/.well-known/openpgpkey/hu/wmxth3chu9jfxdxywj1skpmhsj311mzm>`_, then import it with:
-
-.. code-block:: console
-
-   $ gpg --import wmxth3chu9jfxdxywj1skpmhsj311mzm
-
-* Download and import the key from one of the key servers:
-
-.. code-block:: console
-
-   $ gpg --keyserver hkp://pgp.mit.edu --recv-keys 87E673AF83F6C3A0C344C8C3F4AA229D4D58C245
-   gpg: key 9C27B31342B7511D: "Michal Čihař <michal@cihar.com>" imported
-   gpg: Total number processed: 1
-   gpg:              unchanged: 1
-
-This will improve the situation a bit - at this point you can verify that the
-signature from the given key is correct but you still can not trust the name used
-in the key:
-
-.. code-block:: console
-
-   $ gpg --verify Weblate-3.5.tar.xz.asc
-   gpg: assuming signed data in 'Weblate-3.5.tar.xz'
-   gpg: Signature made Ne 3. března 2019, 16:43:15 CET
-   gpg:                using RSA key 87E673AF83F6C3A0C344C8C3F4AA229D4D58C245
-   gpg: Good signature from "Michal Čihař <michal@cihar.com>" [ultimate]
-   gpg:                 aka "Michal Čihař <nijel@debian.org>" [ultimate]
-   gpg:                 aka "[jpeg image of size 8848]" [ultimate]
-   gpg:                 aka "Michal Čihař (Braiins) <michal.cihar@braiins.cz>" [ultimate]
-   gpg: WARNING: This key is not certified with a trusted signature!
-   gpg:          There is no indication that the signature belongs to the owner.
-   Primary key fingerprint: 63CB 1DF1 EF12 CF2A C0EE  5A32 9C27 B313 42B7 511D
-
-The problem here is that anybody could issue the key with this name.  You need to
-ensure that the key is actually owned by the mentioned person.  The GNU Privacy
-Handbook covers this topic in the chapter `Validating other keys on your public
-keyring`_. The most reliable method is to meet the developer in person and
-exchange key fingerprints, however you can also rely on the web of trust. This way
-you can trust the key transitively through signatures of others, who have met
-the developer in person.
-
-Once the key is trusted, the warning will not occur:
-
-.. code-block:: console
-
-   $ gpg --verify Weblate-3.5.tar.xz.asc
-   gpg: assuming signed data in 'Weblate-3.5.tar.xz'
-   gpg: Signature made Sun Mar  3 16:43:15 2019 CET
-   gpg:                using RSA key 87E673AF83F6C3A0C344C8C3F4AA229D4D58C245
-   gpg: Good signature from "Michal Čihař <michal@cihar.com>" [ultimate]
-   gpg:                 aka "Michal Čihař <nijel@debian.org>" [ultimate]
-   gpg:                 aka "[jpeg image of size 8848]" [ultimate]
-   gpg:                 aka "Michal Čihař (Braiins) <michal.cihar@braiins.cz>" [ultimate]
-
-
-Should the signature be invalid (the archive has been changed), you would get a
-clear error regardless of the fact that the key is trusted or not:
-
-.. code-block:: console
-
-   $ gpg --verify Weblate-3.5.tar.xz.asc
-   gpg: Signature made Sun Mar  3 16:43:15 2019 CET
-   gpg:                using RSA key 87E673AF83F6C3A0C344C8C3F4AA229D4D58C245
-   gpg: BAD signature from "Michal Čihař <michal@cihar.com>" [ultimate]
-
-
-.. _Validating other keys on your public keyring: https://www.gnupg.org/gph/en/manual.html#AEN335
+   sigstore verify github  \
+      --cert-identity https://github.com/WeblateOrg/weblate/.github/workflows/setup.yml@refs/tags/weblate-5.4 \
+      --bundle Weblate-5.4-py3-none-any.whl.sigstore \
+      Weblate-5.4-py3-none-any.whl
 
 .. _file-permissions:
 
@@ -442,11 +363,46 @@ It is recommended to run Weblate with a PostgreSQL database server.
 
 PostgreSQL 12 and higher is supported.
 
+:ref:`mysql` is supported, but not recommended for new installs.
+
+No other database servers are supported.
+
 .. seealso::
 
    :ref:`production-database`,
    :doc:`django:ref/databases`,
    :ref:`database-migration`
+
+.. _db-connections:
+
+Database connections
+++++++++++++++++++++
+
+In the default configuration, each Weblate process keeps a persistent
+connection to the database. Persistent connections improve Weblate
+responsiveness, but might require more resources for the database server.
+Please consult :setting:`django:CONN_MAX_AGE` and
+:ref:`django:persistent-database-connections` for more info.
+
+Weblate needs at least the following number of connections:
+
+* :math:`(4 \times \mathit{nCPUs}) + 2` for Celery processes
+* :math:`\mathit{nCPUs} + 1` for WSGI workers
+
+This applies to Docker container defaults and example configurations provided
+in this documentation, but the numbers will change once you customize the amount of
+WSGI workers or adjust parallelism of Celery.
+
+The actual limit for the number of database connections needs to be higher to
+account following situations:
+
+* :ref:`manage` need their connection as well.
+* If case process is killed (for example by OOM killer), it might block the existing connection until timeout.
+
+.. seealso::
+   :ref:`celery`,
+   :ref:`uwsgi`,
+   :envvar:`WEBLATE_WORKERS`
 
 .. _postgresql:
 
@@ -536,10 +492,9 @@ This is known to happen with Azure Database for PostgreSQL, but it's not
 limited to this environment. Please set ``ALTER_ROLE`` to change name of the
 role Weblate should alter during the database migration.
 
-Persistent connections improve Weblate responsiveness, but might require more
-resources for the database server. Please consult
-:setting:`django:CONN_MAX_AGE` and
-:ref:`django:persistent-database-connections` for more info.
+.. seealso::
+
+   :ref:`db-connections`
 
 .. _mysql:
 
@@ -614,6 +569,10 @@ you start your Weblate install.
    In case you are getting ``#2006 - MySQL server has gone away`` error,
    configuring :setting:`django:CONN_MAX_AGE` might help.
 
+.. seealso::
+
+   :ref:`db-connections`
+
 Configuring Weblate to use MySQL/MariaDB
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -648,6 +607,10 @@ you begin the install. Use the commands below to achieve that:
 
    GRANT ALL ON weblate.* to 'weblate'@'localhost' IDENTIFIED BY 'password';
    FLUSH PRIVILEGES;
+
+.. seealso::
+
+   :ref:`db-connections`
 
 Other configurations
 --------------------
@@ -752,9 +715,13 @@ options:
     List of site administrators to receive notifications when something goes
     wrong, for example notifications on failed merges, or Django errors.
 
+    Contact form sends e-mail on these as well unless :setting:`ADMINS_CONTACT`
+    is configured.
+
     .. seealso::
 
         :setting:`django:ADMINS`,
+        :setting:`ADMINS_CONTACT`,
         :ref:`production-admins`
 
 .. setting:: ALLOWED_HOSTS
@@ -898,7 +865,7 @@ need to fix all of them):
 
     weblate check --deploy
 
-You can also review the very same checklist from the :ref:`management-interface`.
+You can also review the very same checklist at :ref:`manage-performance` in the :ref:`management-interface`.
 
 .. seealso::
 
@@ -1331,7 +1298,7 @@ For testing purposes, you can use the built-in web server in Django:
 
    The Django built-in server serves static files only with :setting:`DEBUG`
    enabled as it is intended for development only. For production use, please
-   see wsgi setups in :ref:`uwsgi`, :ref:`apache`, :ref:`apache-gunicorn`, and
+   see WSGI setups in :ref:`uwsgi`, :ref:`apache`, :ref:`apache-gunicorn`, and
    :ref:`static-files`.
 
 .. _static-files:
@@ -1388,7 +1355,7 @@ Sample configuration for NGINX and uWSGI
 ++++++++++++++++++++++++++++++++++++++++
 
 
-To run production webserver, use the wsgi wrapper installed with Weblate (in
+To run production webserver, use the WSGI wrapper installed with Weblate (in
 virtual env case it is installed as
 :file:`~/weblate-env/lib/python3.9/site-packages/weblate/wsgi.py`).  Don't
 forget to set the Python search path to your virtualenv as well (for example
@@ -1425,7 +1392,7 @@ The following configuration runs Weblate as WSGI, you need to have enabled
 
 .. note::
 
-    Weblate requires Python 3, so please make sure you are running Python 3
+    Weblate requires Python 3, so please ensure you are running Python 3
     variant of the modwsgi. Usually it is available as a separate package, for
     example ``libapache2-mod-wsgi-py3``.
 
@@ -1483,7 +1450,7 @@ for handling following operations (this list is not complete):
   (see :ref:`backup`, :setting:`BACKGROUND_TASKS`, :ref:`addons`).
 * Running :ref:`auto-translation`.
 * Sending digest notifications.
-* Offloading expensive operations from the wsgi process.
+* Offloading expensive operations from the WSGI process.
 * Committing pending changes (see :ref:`lazy-commit`).
 
 A typical setup using Redis as a backend looks like this:
@@ -1515,7 +1482,7 @@ useful when debugging or developing):
 
    See also :ref:`file-permissions` and :ref:`server`.
 
-Executing Celery tasks in the wsgi using eager mode
+Executing Celery tasks in the WSGI using eager mode
 +++++++++++++++++++++++++++++++++++++++++++++++++++
 
 .. note::
@@ -1627,8 +1594,8 @@ For monitoring metrics of Weblate you can use :http:get:`/api/metrics/` API endp
 
 .. _collecting-errors:
 
-Collecting error reports
-------------------------
+Collecting error reports and monitoring performance
+---------------------------------------------------
 
 Weblate, as any other software, can fail. In order to collect useful failure
 states we recommend to use third party services to collect such information.
@@ -1645,6 +1612,15 @@ it, it's enough to set :setting:`SENTRY_DSN` in the :file:`settings.py`:
 .. code-block:: python
 
    SENTRY_DSN = "https://id@your.sentry.example.com/"
+
+Sentry can be also used to monitor performance of Weblate by collecting traces
+and profiles for defined percentage of operations. This can be configured using
+:setting:`SENTRY_TRACES_SAMPLE_RATE` and :setting:`SENTRY_PROFILES_SAMPLE_RATE`.
+
+.. seealso::
+
+   `Sentry Performance Monitoring <https://docs.sentry.io/product/performance/>`_,
+   `Sentry Profiling <https://docs.sentry.io/product/profiling/>`_
 
 Rollbar
 +++++++

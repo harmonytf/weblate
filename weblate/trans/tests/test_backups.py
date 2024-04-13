@@ -8,7 +8,10 @@ import os
 from unittest import SkipTest
 from zipfile import ZipFile
 
+from django.conf import settings
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.files import File
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.urls import reverse
 
@@ -16,13 +19,13 @@ from weblate.checks.models import Check
 from weblate.screenshots.models import Screenshot
 from weblate.trans.backups import ProjectBackup
 from weblate.trans.models import Comment, Project, Suggestion, Unit, Vote
-from weblate.trans.tasks import cleanup_project_backups
+from weblate.trans.tasks import cleanup_project_backup_download, cleanup_project_backups
 from weblate.trans.tests.test_views import ViewTestCase
 from weblate.trans.tests.utils import get_test_file
 
 TEST_SCREENSHOT = get_test_file("screenshot.png")
 TEST_BACKUP = get_test_file("projectbackup-4.14.zip")
-TEST_INVALID = get_test_file("invalid.zip")
+TEST_BACKUP_DUPLICATE = get_test_file("projectbackup-duplicate.zip")
 
 
 class BackupsTest(ViewTestCase):
@@ -31,7 +34,7 @@ class BackupsTest(ViewTestCase):
     def test_create_backup(self):
         # Additional content to test on backups
         label = self.project.label_set.create(name="Label", color="navy")
-        unit = self.component.source_translation.unit_set.first()
+        unit = self.component.source_translation.unit_set.all()[0]
         unit.labels.add(label)
         shot = Screenshot.objects.create(
             name="Obrazek", translation=self.component.source_translation
@@ -154,6 +157,13 @@ class BackupsTest(ViewTestCase):
             set(restored.label_set.values_list("name", "color")),
         )
 
+    def test_restore_duplicate(self):
+        if not connection.features.can_return_rows_from_bulk_insert:
+            raise SkipTest("Not supported")
+        restore = ProjectBackup(TEST_BACKUP_DUPLICATE)
+        with self.assertRaises(ValueError):
+            restore.validate()
+
     def test_cleanup(self):
         cleanup_project_backups()
         self.assertLessEqual(len(self.project.list_backups()), 3)
@@ -170,6 +180,7 @@ class BackupsTest(ViewTestCase):
         self.assertEqual(len(self.project.list_backups()), 4)
         cleanup_project_backups()
         self.assertEqual(len(self.project.list_backups()), 3)
+        cleanup_project_backup_download()
 
     def test_views(self):
         start = len(self.project.list_backups())
@@ -192,22 +203,29 @@ class BackupsTest(ViewTestCase):
             },
         )
         response = self.client.get(url)
-        self.assertContains(response, b"PK")
+        self.assertEqual(response.status_code, 302)
+        # Testing staticfiles doesn't work, so we emulate this manually
+        url = response.url
+        self.assertTrue(url.startswith(settings.STATIC_URL))
+        filename = url[len(settings.STATIC_URL) :]
+        with staticfiles_storage.open(filename, "rb") as handle:
+            self.assertEqual(handle.read(2), b"PK")
 
     def test_view_restore(self):
         if not connection.features.can_return_rows_from_bulk_insert:
             raise SkipTest("Not supported")
         self.user.is_superuser = True
         self.user.save()
-        with open(TEST_INVALID, "rb") as handle:
-            response = self.client.post(
-                reverse("create-project-import"),
-                {
-                    "zipfile": handle,
-                },
-                follow=True,
-            )
-            self.assertContains(response, "Could not load project backup")
+        response = self.client.post(
+            reverse("create-project-import"),
+            {
+                "zipfile": SimpleUploadedFile(
+                    "invalid.zip", b"x", content_type="application/zip"
+                )
+            },
+            follow=True,
+        )
+        self.assertContains(response, "Could not load project backup")
 
         with open(TEST_BACKUP, "rb") as handle:
             response = self.client.post(

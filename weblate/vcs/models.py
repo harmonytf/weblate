@@ -13,6 +13,7 @@ class VCSConf(AppConf):
         "weblate.vcs.git.GitWithGerritRepository",
         "weblate.vcs.git.SubversionRepository",
         "weblate.vcs.git.GithubRepository",
+        "weblate.vcs.git.AzureDevOpsRepository",
         "weblate.vcs.git.GiteaRepository",
         "weblate.vcs.git.GitLabRepository",
         "weblate.vcs.git.PagureRepository",
@@ -23,9 +24,13 @@ class VCSConf(AppConf):
     )
     VCS_CLONE_DEPTH = 1
     VCS_API_DELAY = 10
+    VCS_FILE_PROTOCOL = False
 
     # GitHub username for sending pull requests
     GITHUB_CREDENTIALS = {}
+
+    # Azure DevOps username for sending pull requests
+    AZURE_DEVOPS_CREDENTIALS = {}
 
     # GitLab username for sending merge requests
     GITLAB_CREDENTIALS = {}

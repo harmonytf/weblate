@@ -2,18 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import os
 
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.utils import find_command
 from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import BaseAddon, StoreBaseAddon, UpdateBaseAddon
-from weblate.addons.events import EVENT_DAILY, EVENT_POST_ADD, EVENT_PRE_COMMIT
+from weblate.addons.events import AddonEvent
 from weblate.addons.forms import GenerateMoForm, GettextCustomizeForm, MsgmergeForm
 from weblate.formats.base import UpdateError
 from weblate.formats.exporters import MoExporter
-from weblate.utils.state import STATE_TRANSLATED
+from weblate.utils.state import STATE_FUZZY, STATE_TRANSLATED
 
 
 class GettextBaseAddon(BaseAddon):
@@ -21,7 +22,7 @@ class GettextBaseAddon(BaseAddon):
 
 
 class GenerateMoAddon(GettextBaseAddon):
-    events = (EVENT_PRE_COMMIT,)
+    events = (AddonEvent.EVENT_PRE_COMMIT,)
     name = "weblate.gettext.mo"
     verbose = gettext_lazy("Generate MO files")
     description = gettext_lazy(
@@ -31,9 +32,14 @@ class GenerateMoAddon(GettextBaseAddon):
 
     def pre_commit(self, translation, author):
         exporter = MoExporter(translation=translation)
-        exporter.add_units(
-            translation.unit_set.filter(state__gte=STATE_TRANSLATED).prefetch_full()
-        )
+
+        if self.instance.configuration.get("fuzzy"):
+            state = STATE_FUZZY
+        else:
+            state = STATE_TRANSLATED
+        units = translation.unit_set.filter(state__gte=state)
+
+        exporter.add_units(units.prefetch_full())
 
         template = self.instance.configuration.get("path")
         if not template:
@@ -49,7 +55,7 @@ class GenerateMoAddon(GettextBaseAddon):
 
 
 class UpdateLinguasAddon(GettextBaseAddon):
-    events = (EVENT_POST_ADD, EVENT_DAILY)
+    events = (AddonEvent.EVENT_POST_ADD, AddonEvent.EVENT_DAILY)
     name = "weblate.gettext.linguas"
     verbose = gettext_lazy("Update LINGUAS file")
     description = gettext_lazy(
@@ -142,7 +148,7 @@ class UpdateLinguasAddon(GettextBaseAddon):
 
 
 class UpdateConfigureAddon(GettextBaseAddon):
-    events = (EVENT_POST_ADD, EVENT_DAILY)
+    events = (AddonEvent.EVENT_POST_ADD, AddonEvent.EVENT_DAILY)
     name = "weblate.gettext.configure"
     verbose = gettext_lazy('Update ALL_LINGUAS variable in the "configure" file')
     description = gettext_lazy(
@@ -229,6 +235,20 @@ class MsgmergeAddon(GettextBaseAddon, UpdateBaseAddon):
             return False
         return super().can_install(component, user)
 
+    def get_msgmerge_args(self, component):
+        args = []
+        if not self.instance.configuration.get("fuzzy", True):
+            args.append("--no-fuzzy-matching")
+        if self.instance.configuration.get("previous", True):
+            args.append("--previous")
+        if self.instance.configuration.get("no_location", False):
+            args.append("--no-location")
+
+        # Apply gettext customize add-on configuration
+        if customize_addon := component.get_addon(GettextCustomizeAddon.name):
+            args.extend(customize_addon.addon.get_msgmerge_args(component))
+        return args
+
     def update_translations(self, component, previous_head):
         # Run always when there is an alerts, there is a chance that
         # the update clears it.
@@ -258,21 +278,7 @@ class MsgmergeAddon(GettextBaseAddon, UpdateBaseAddon):
             self.trigger_alerts(component)
             component.log_info("%s addon skipped, new base was not found", self.name)
             return
-        args = []
-        if not self.instance.configuration.get("fuzzy", True):
-            args.append("--no-fuzzy-matching")
-        if self.instance.configuration.get("previous", True):
-            args.append("--previous")
-        if self.instance.configuration.get("no_location", False):
-            args.append("--no-location")
-        try:
-            width = component.addon_set.get(
-                name="weblate.gettext.customize"
-            ).configuration["width"]
-            if width != 77:
-                args.append("--no-wrap")
-        except ObjectDoesNotExist:
-            pass
+        args = self.get_msgmerge_args(component)
         for translation in component.translation_set.iterator():
             filename = translation.get_filename()
             if (
@@ -297,6 +303,12 @@ class MsgmergeAddon(GettextBaseAddon, UpdateBaseAddon):
                 component.log_info("%s addon failed: %s", self.name, error)
         self.trigger_alerts(component)
 
+    def commit_and_push(
+        self, component, files: list[str] | None = None, skip_push: bool = False
+    ):
+        if super().commit_and_push(component, files=files, skip_push=skip_push):
+            component.create_translations()
+
 
 class GettextCustomizeAddon(GettextBaseAddon, StoreBaseAddon):
     name = "weblate.gettext.customize"
@@ -309,9 +321,14 @@ class GettextCustomizeAddon(GettextBaseAddon, StoreBaseAddon):
     def store_post_load(self, translation, store):
         store.store.wrapper.width = int(self.instance.configuration.get("width", 77))
 
+    def get_msgmerge_args(self, component):
+        if int(self.instance.configuration.get("width", 77)) != 77:
+            return ["--no-wrap"]
+        return []
+
 
 class GettextAuthorComments(GettextBaseAddon):
-    events = (EVENT_PRE_COMMIT,)
+    events = (AddonEvent.EVENT_PRE_COMMIT,)
     name = "weblate.gettext.authors"
     verbose = gettext_lazy("Contributors in comment")
     description = gettext_lazy(

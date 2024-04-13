@@ -8,7 +8,9 @@ from translate.misc.multistring import multistring
 from weblate.trans.util import (
     cleanup_path,
     cleanup_repo_url,
+    count_words,
     get_string,
+    join_plural,
     translation_percent,
 )
 
@@ -97,3 +99,36 @@ class TextConversionTest(SimpleTestCase):
 
     def test_int(self):
         self.assertEqual(get_string(42), "42")
+
+
+class WordCountTestCase(SimpleTestCase):
+    def test_words(self):
+        self.assertEqual(count_words("count words"), 2)
+
+    def test_plural(self):
+        self.assertEqual(count_words(join_plural(["count word", "count words"])), 4)
+
+    def test_unused(self):
+        self.assertEqual(
+            count_words(join_plural(["<unused singular 1>", "count words"])), 2
+        )
+
+    def test_sentence(self):
+        self.assertEqual(count_words("You need to count a word!"), 6)
+
+    def test_numbers(self):
+        self.assertEqual(count_words("There are 123 words"), 4)
+
+    def test_complex(self):
+        self.assertEqual(
+            count_words("I've just realized that they have 5 %(color)s cats."), 9
+        )
+
+    def test_cjk(self):
+        self.assertEqual(
+            count_words(
+                "小娜在2014年4月2日举行的微软Build开发者大会上正式展示并发布。2014年中旬，微软发布了“小娜”这一名字，作为Cortana在中国大陆使用的中文名。与这一中文名一起发布的是小娜在中国大陆的另一个形象。“小娜”一名源自微软旗下知名FPS游戏《光环》中的同名女角色。",
+                "zh",
+            ),
+            118,
+        )

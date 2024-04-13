@@ -4,21 +4,30 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 
 from django.utils import timezone
 
-from .base import MachineTranslation, MachineTranslationError
+from weblate.glossary.models import get_glossary_terms
+
+from .base import (
+    DownloadTranslations,
+    MachineTranslation,
+    MachineTranslationError,
+    SettingsDict,
+    XMLMachineTranslationMixin,
+)
 from .forms import MicrosoftMachineryForm
 
 TOKEN_URL = "https://{0}{1}/sts/v1.0/issueToken?Subscription-Key={2}"  # noqa: S105
 TOKEN_EXPIRY = timedelta(minutes=9)
 
 
-class MicrosoftCognitiveTranslation(MachineTranslation):
+class MicrosoftCognitiveTranslation(XMLMachineTranslationMixin, MachineTranslation):
     """Microsoft Cognitive Services Translator API support."""
 
-    name = "Microsoft Translator"
+    name = "Azure AI Translator"
     max_score = 90
     settings_form = MicrosoftMachineryForm
 
@@ -37,11 +46,15 @@ class MicrosoftCognitiveTranslation(MachineTranslation):
         "mn": "mn-Mong",
     }
 
-    def __init__(self, settings: dict[str, str]):
+    @classmethod
+    def get_identifier(cls):
+        return "microsoft-translator"
+
+    def __init__(self, settings: SettingsDict):
         """Check configuration."""
         super().__init__(settings)
-        self._access_token = None
-        self._token_expiry = None
+        self._access_token: None | str = None
+        self._token_expiry: None | datetime = None
 
         # check settings for Microsoft region prefix
         region = "" if not self.settings["region"] else f"{self.settings['region']}."
@@ -57,7 +70,7 @@ class MicrosoftCognitiveTranslation(MachineTranslation):
 
     def is_token_expired(self):
         """Check whether token is about to expire."""
-        return self._token_expiry <= timezone.now()
+        return self._token_expiry is None or self._token_expiry <= timezone.now()
 
     def get_authentication(self):
         """Hook for backends to allow add authentication headers to request."""
@@ -112,13 +125,14 @@ class MicrosoftCognitiveTranslation(MachineTranslation):
         unit,
         user,
         threshold: int = 75,
-    ):
+    ) -> DownloadTranslations:
         """Download list of possible translations from a service."""
         args = {
             "api-version": "3.0",
             "from": source,
             "to": language,
             "category": "general",
+            "textType": "html",
         }
         response = self.request(
             "post", self.get_url("translate"), params=args, json=[{"Text": text[:5000]}]
@@ -132,3 +146,37 @@ class MicrosoftCognitiveTranslation(MachineTranslation):
             "service": self.name,
             "source": text,
         }
+
+    def format_replacement(self, h_start: int, h_end: int, h_text: str, h_kind: Any):
+        """Generates a single replacement."""
+        if h_kind is None:
+            return f'<span class="notranslate" id="{h_start}">{self.escape_text(h_text)}</span>'  # noqa: B028
+        # Glossary
+        flags = h_kind.all_flags
+        if "forbidden" in flags:
+            return h_text
+        if "read-only" in flags:
+            # Use terminology format
+            return self.format_replacement(h_start, h_end, h_text, None)
+        return f'<mstrans:dictionary translation="{self.escape_text(h_kind.target)}">{self.escape_text(h_text)}</mstrans:dictionary>'
+
+    def get_highlights(self, text, unit):
+        result = list(super().get_highlights(text, unit))
+
+        for term in get_glossary_terms(unit):
+            for start, end in term.glossary_positions:
+                glossary_highlight = (start, end, text[start:end], term)
+                handled = False
+                for i, (h_start, _h_end, _h_text, _h_kind) in enumerate(result):
+                    if start < h_start:
+                        if end > h_start:
+                            # Skip as overlaps
+                            break
+                        # Insert before
+                        result.insert(i, glossary_highlight)
+                        handled = True
+                        break
+                if not handled and not result or result[-1][1] < start:
+                    result.append(glossary_highlight)
+
+        yield from result

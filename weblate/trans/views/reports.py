@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from collections import defaultdict
+
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.utils.html import conditional_escape, format_html, format_html_join
@@ -11,7 +13,7 @@ from django.views.decorators.http import require_POST
 from weblate.lang.models import Language
 from weblate.trans.forms import ReportsForm
 from weblate.trans.models import Change, Component, Project
-from weblate.trans.util import redirect_param
+from weblate.trans.util import count_words, redirect_param
 from weblate.utils.views import parse_path, show_form_errors
 
 # Header, two longer fields for name and email, shorter fields for numbers
@@ -32,7 +34,7 @@ def format_plaintext_join(sep, format_string, args_generator):
 
 def generate_credits(user, start_date, end_date, language_code: str, **kwargs):
     """Generate credits data for given component."""
-    result = []
+    result = defaultdict(list)
 
     base = Change.objects.content()
     if user:
@@ -42,15 +44,14 @@ def generate_credits(user, start_date, end_date, language_code: str, **kwargs):
     if language_code:
         languages = languages.filter(code=language_code)
 
-    for language in languages.distinct().iterator():
-        authors = base.filter(language=language, **kwargs).authors_list(
-            (start_date, end_date)
-        )
-        if not authors:
-            continue
-        result.append({language.name: sorted(authors, key=lambda item: item[2])})
+    for *author, language in (
+        base.filter(language__in=languages, **kwargs)
+        .authors_list((start_date, end_date), values_list=("language__name",))
+        .order_by("language__name", "-change_count")
+    ):
+        result[language].append(tuple(author))
 
-    return result
+    return [{language: authors} for language, authors in result.items()]
 
 
 @login_required
@@ -187,7 +188,7 @@ def generate_counts(user, start_date, end_date, language_code: str, **kwargs):
         src_chars = len(change.unit.source)
         src_words = change.unit.num_words
         tgt_chars = len(change.target)
-        tgt_words = len(change.target.split())
+        tgt_words = count_words(change.target, language_code)
         edits = change.get_distance()
 
         current["chars"] += src_chars

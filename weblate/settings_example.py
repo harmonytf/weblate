@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# mypy: disable-error-code="var-annotated"
+
 import os
 import platform
 from logging.handlers import SysLogHandler
@@ -121,6 +123,7 @@ LANGUAGES = (
     ("sr", "Српски"),
     ("sr-latn", "Srpski"),
     ("sv", "Svenska"),
+    ("ta", "தமிழ்"),
     ("th", "ไทย"),
     ("tr", "Türkçe"),
     ("uk", "Українська"),
@@ -199,6 +202,10 @@ TEMPLATES = [
 # GitHub username and token for sending pull requests.
 # Please see the documentation for more details.
 GITHUB_CREDENTIALS = {}
+
+# Azure DevOps username and token for sending pull requests.
+# Please see the documentation for more details.
+AZURE_DEVOPS_CREDENTIALS = {}
 
 # GitLab username and token for sending merge requests.
 # Please see the documentation for more details.
@@ -632,6 +639,7 @@ CRISPY_TEMPLATE_PACK = "bootstrap3"
 #     "weblate.checks.format.PHPFormatCheck",
 #     "weblate.checks.format.CFormatCheck",
 #     "weblate.checks.format.PerlFormatCheck",
+#     "weblate.checks.format.PerlBraceFormatCheck",
 #     "weblate.checks.format.JavaScriptFormatCheck",
 #     "weblate.checks.format.LuaFormatCheck",
 #     "weblate.checks.format.ObjectPascalFormatCheck",
@@ -814,6 +822,7 @@ if REQUIRE_LOGIN:
 #    rf"{URL_PREFIX}/healthz/$",  # Allowing public access to health check
 #    rf"{URL_PREFIX}/api/(.*)$",  # Allowing access to API
 #    rf"{URL_PREFIX}/js/i18n/$",  # JavaScript localization
+#    rf"{URL_PREFIX}/css/custom\.css$",  # Custom CSS support
 #    rf"{URL_PREFIX}/contact/$",  # Optional for contact form
 #    rf"{URL_PREFIX}/legal/(.*)$",  # Optional for legal app
 #    rf"{URL_PREFIX}/avatar/(.*)$",  # Optional for avatars

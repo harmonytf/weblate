@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 
 from django import template
 from django.contrib.humanize.templatetags.humanize import intcomma
@@ -67,7 +67,7 @@ GLOSSARY_TEMPLATE = """<span class="glossary-term" title="{}">"""
 
 # This should match whitespace_regex in weblate/static/loader-bootstrap.js
 WHITESPACE_REGEX = (
-    r"(\t|\u00A0|\u1680|\u2000|\u2001|\u2002|\u2003|"
+    r"(\t|\u00A0|\u00AD|\u1680|\u2000|\u2001|\u2002|\u2003|"
     r"\u2004|\u2005|\u2006|\u2007|\u2008|\u2009|\u200A|"
     r"\u202F|\u205F|\u3000)"
 )
@@ -243,21 +243,61 @@ class Formatter:
         for term in terms:
             flags = term.all_flags
             target = escape(term.target)
-            if "forbidden" in flags:
-                forbidden.append(target)
-            elif "read-only" in flags:
-                nontranslatable.append(target)
+            source = escape(term.source)
+            # Translators: Glossary term formatting used in a tooltip
+            formatted = pgettext("glossary term", "{target} [{source}]").format(
+                source=source, target=target
+            )
+            if "read-only" in flags:
+                nontranslatable.append(source)
+            elif not target:
+                continue
+            elif "forbidden" in flags:
+                forbidden.append(formatted)
             else:
-                translations.append(target)
+                translations.append(formatted)
 
         output = []
         if forbidden:
-            output.append(gettext("Forbidden translation: %s") % ", ".join(forbidden))
+            output.append(
+                "\n".join(
+                    (
+                        ngettext(
+                            "Forbidden translation:",
+                            "Forbidden translations:",
+                            len(forbidden),
+                        ),
+                        *forbidden,
+                    )
+                )
+            )
         if nontranslatable:
-            output.append(gettext("Untranslatable: %s") % ", ".join(nontranslatable))
+            output.append(
+                "\n".join(
+                    (
+                        ngettext(
+                            "Untranslatable term:",
+                            "Untranslatable terms:",
+                            len(nontranslatable),
+                        ),
+                        *nontranslatable,
+                    )
+                )
+            )
         if translations:
-            output.append(gettext("Glossary translation: %s") % ", ".join(translations))
-        return "; ".join(output)
+            output.append(
+                "\n".join(
+                    (
+                        ngettext(
+                            "Glossary term:",
+                            "Glossary terms:",
+                            len(translations),
+                        ),
+                        *translations,
+                    )
+                )
+            )
+        return "\n\n".join(output)
 
     def parse_glossary(self):
         """Highlights glossary entries."""
@@ -298,7 +338,7 @@ class Formatter:
             re.escape(self.search_match), self.value, flags=re.IGNORECASE
         ):
             self.tags[match.start()].append(start_tag)
-            self.tags[match.end()].append(end_tag)
+            self.tags[match.end()].insert(0, end_tag)
 
     def parse_whitespace(self):
         """Highlight whitespaces."""
@@ -687,6 +727,9 @@ def naturaltime(value, now=None):
     For date and time values shows how many seconds, minutes or hours ago compared to
     current timestamp returns representing string.
     """
+    # float is what time() returns
+    if isinstance(value, float):
+        value = datetime.fromtimestamp(value, tz=timezone.get_current_timezone())
     # datetime is a subclass of date
     if not isinstance(value, date):
         return value
@@ -708,6 +751,19 @@ def get_stats(obj):
     return obj.stats
 
 
+@register.inclusion_tag("snippets/list-objects-percent.html")
+def review_percent(obj):
+    stats = get_stats(obj)
+
+    return {
+        "value": stats.approved + stats.readonly,
+        "percent": stats.approved_percent + stats.readonly_percent,
+        "query": "q=state:>=approved",
+        "all": stats.all,
+        "class": "zero-width-540",
+    }
+
+
 def translation_progress_data(
     total: int, readonly: int, approved: int, translated: int, has_review: bool
 ):
@@ -716,11 +772,9 @@ def translation_progress_data(
         approved += readonly
         translated -= readonly
 
-    bad = total - approved - translated
     return {
         "approved": f"{translation_percent(approved, total, False):.1f}",
         "good": f"{translation_percent(translated, total):.1f}",
-        "bad": f"{translation_percent(bad, total, False):.1f}",
     }
 
 
@@ -748,10 +802,24 @@ def words_progress(obj):
     )
 
 
+@register.inclusion_tag("snippets/progress.html")
+def chars_progress(obj):
+    stats = get_stats(obj)
+    return translation_progress_data(
+        stats.all_chars,
+        stats.readonly_chars,
+        stats.approved_chars,
+        stats.translated_chars - stats.translated_checks_chars,
+        stats.has_review,
+    )
+
+
 @register.simple_tag
 def unit_state_class(unit) -> str:
     """Return state flags."""
-    if unit.has_failing_check or not unit.translated:
+    if unit.has_failing_check:
+        return "unit-state-bad"
+    if not unit.translated:
         return "unit-state-todo"
     if unit.approved or (unit.readonly and unit.translation.enable_review):
         return "unit-state-approved"
@@ -1230,14 +1298,20 @@ def get_breadcrumbs(path_object, flags: bool = True):
         yield reverse("languages"), gettext("Languages")
         yield path_object.get_absolute_url(), path_object
     elif isinstance(path_object, ProjectLanguage):
-        yield f"{path_object.project.get_absolute_url()}#languages", path_object.project.name
+        yield (
+            f"{path_object.project.get_absolute_url()}#languages",
+            path_object.project.name,
+        )
         yield path_object.get_absolute_url(), path_object.language
     elif isinstance(path_object, CategoryLanguage):
         if path_object.category.category:
             yield from get_breadcrumbs(path_object.category.category)
         else:
             yield from get_breadcrumbs(path_object.category.project)
-        yield f"{path_object.category.get_absolute_url()}#languages", path_object.category.name
+        yield (
+            f"{path_object.category.get_absolute_url()}#languages",
+            path_object.category.name,
+        )
         yield path_object.get_absolute_url(), path_object.language
     else:
         raise TypeError(f"No breadcrumbs for {path_object}")

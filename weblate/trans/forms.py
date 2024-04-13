@@ -16,10 +16,9 @@ from crispy_forms.layout import HTML, Div, Field, Fieldset, Layout
 from django import forms
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS, PermissionDenied, ValidationError
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, validate_slug
 from django.db.models import Q
 from django.forms import model_to_dict
-from django.forms.models import ModelChoiceIterator
 from django.forms.utils import from_current_timezone
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -63,6 +62,7 @@ from weblate.trans.util import check_upload_method_permissions, is_repo_link
 from weblate.trans.validators import validate_check_flags
 from weblate.utils.antispam import is_spam
 from weblate.utils.forms import (
+    CachedModelMultipleChoiceField,
     ColorWidget,
     ContextDiv,
     EmailField,
@@ -76,11 +76,12 @@ from weblate.utils.forms import (
 from weblate.utils.hash import checksum_to_hash, hash_to_checksum
 from weblate.utils.state import (
     STATE_APPROVED,
-    STATE_CHOICES,
     STATE_EMPTY,
     STATE_FUZZY,
     STATE_READONLY,
     STATE_TRANSLATED,
+    StringState,
+    get_state_label,
 )
 from weblate.utils.validators import validate_file_extension
 from weblate.vcs.models import VCS_REGISTRY
@@ -182,7 +183,9 @@ class PluralTextarea(forms.Textarea):
         )
 
         groups = format_html_join(
-            "\n", GROUP_TEMPLATE, [("", chars)]  # Only one group.
+            "\n",
+            GROUP_TEMPLATE,
+            [("", chars)],  # Only one group.
         )
 
         return format_html(TOOLBAR_TEMPLATE, groups)
@@ -249,7 +252,9 @@ class PluralTextarea(forms.Textarea):
         )
 
         groups = format_html_join(
-            "\n", GROUP_TEMPLATE, [("", chars)]  # Only one group.
+            "\n",
+            GROUP_TEMPLATE,
+            [("", chars)],  # Only one group.
         )
 
         result = format_html(TOOLBAR_TEMPLATE, groups)
@@ -362,7 +367,7 @@ class PluralField(forms.CharField):
         super().__init__(widget=PluralTextarea, **kwargs)
 
     def to_python(self, value):
-        """Return list or string as returned by PluralTextarea."""
+        """Return list of strings as returned by PluralTextarea."""
         return value
 
     def clean(self, value):
@@ -444,9 +449,9 @@ class TranslationForm(UnitForm):
     review = forms.ChoiceField(
         label=gettext_lazy("Review state"),
         choices=[
-            (STATE_FUZZY, gettext_lazy("Needs editing")),
-            (STATE_TRANSLATED, gettext_lazy("Waiting for review")),
-            (STATE_APPROVED, gettext_lazy("Approved")),
+            (state, get_state_label(state, label, True))
+            for state, label in StringState.choices
+            if state not in (STATE_READONLY, STATE_EMPTY)
         ],
         required=False,
         widget=forms.RadioSelect,
@@ -479,7 +484,9 @@ class TranslationForm(UnitForm):
             for field in ["target", "fuzzy", "review"]:
                 self.fields[field].widget.attrs["readonly"] = 1
             self.fields["review"].choices = [
-                (STATE_READONLY, gettext_lazy("Read only")),
+                (state, label)
+                for state, label in StringState.choices
+                if state == STATE_READONLY
             ]
         self.user = user
         self.fields["target"].widget.attrs["tabindex"] = tabindex
@@ -706,6 +713,12 @@ class SearchForm(forms.Form):
     offset = forms.IntegerField(min_value=-1, required=False, widget=forms.HiddenInput)
     offset_kwargs = {}
 
+    @staticmethod
+    def get_initial(request):
+        if "q" in request.GET:
+            return {"q": request.GET["q"]}
+        return None
+
     def __init__(self, user, language=None, show_builder=True, **kwargs):
         """Generate choices for other components in the same project."""
         self.user = user
@@ -870,7 +883,7 @@ class AutoForm(forms.Form):
         initial="others",
     )
     component = forms.ChoiceField(
-        label=gettext_lazy("Components"),
+        label=gettext_lazy("Component"),
         required=False,
         help_text=gettext_lazy(
             "Turn on contribution to shared translation memory for the project to "
@@ -896,9 +909,7 @@ class AutoForm(forms.Form):
         ) | Component.objects.filter(
             source_language_id=obj.source_language_id,
             project__contribute_shared_tm=True,
-        ).exclude(
-            project=obj.project
-        )
+        ).exclude(project=obj.project)
 
         # Fetching first few entries is faster than doing a count query on possibly
         # thousands of components
@@ -940,7 +951,14 @@ class AutoForm(forms.Form):
         if "weblate" in engine_ids:
             self.fields["engines"].initial = "weblate"
 
-        use_types = {"all", "nottranslated", "todo", "fuzzy", "check:inconsistent"}
+        use_types = {
+            "all",
+            "nottranslated",
+            "todo",
+            "fuzzy",
+            "check:inconsistent",
+            "check:translated",
+        }
 
         self.fields["filter_type"].choices = [
             x for x in self.fields["filter_type"].choices if x[0] in use_types
@@ -992,6 +1010,12 @@ class AutoForm(forms.Form):
                     raise ValidationError(gettext("Component not found!"))
             else:
                 raise ValidationError(gettext("Please provide valid component slug!"))
+        if result.source_language != self.obj.source_language:
+            raise ValidationError(
+                gettext(
+                    "Source component needs to have same source language as target one."
+                )
+            )
         return result.pk
 
 
@@ -1035,10 +1059,18 @@ class CommentForm(forms.Form):
             self.fields["scope"].choices = self.fields["scope"].choices[1:]
 
 
+class LanguageCodeChoiceField(forms.ModelChoiceField):
+    def to_python(self, value):
+        # Add explicit validation here to avoid DataError on invalid input
+        # such as: PostgreSQL text fields cannot contain NUL (0x00) bytes
+        validate_slug(value)
+        return super().to_python(value)
+
+
 class EngageForm(forms.Form):
     """Form to choose language for engagement widgets."""
 
-    lang = forms.ModelChoiceField(
+    lang = LanguageCodeChoiceField(
         Language.objects.none(),
         empty_label=gettext_lazy("All languages"),
         required=False,
@@ -1473,7 +1505,17 @@ class ComponentSettingsForm(
             TabHolder(
                 Tab(
                     gettext("Basic"),
-                    Fieldset(gettext("Name"), "name"),
+                    Fieldset(
+                        gettext("Name"),
+                        "name",
+                        ContextDiv(
+                            template="snippets/settings-organize.html",
+                            context={
+                                "object": self.instance,
+                                "type": "component",
+                            },
+                        ),
+                    ),
                     Fieldset(gettext("License"), "license", "agreement"),
                     Fieldset(gettext("Upstream links"), "report_source_bugs"),
                     Fieldset(
@@ -1530,19 +1572,16 @@ class ComponentSettingsForm(
                 ),
                 Tab(
                     gettext("Commit messages"),
-                    Fieldset(
-                        gettext("Commit messages"),
-                        ContextDiv(
-                            template="trans/messages_help.html",
-                            context={"user": request.user},
-                        ),
-                        "commit_message",
-                        "add_message",
-                        "delete_message",
-                        "merge_message",
-                        "addon_message",
-                        "pull_message",
+                    ContextDiv(
+                        template="trans/messages_help.html",
+                        context={"user": request.user},
                     ),
+                    "commit_message",
+                    "add_message",
+                    "delete_message",
+                    "merge_message",
+                    "addon_message",
+                    "pull_message",
                     css_id="messages",
                 ),
                 Tab(
@@ -1584,6 +1623,7 @@ class ComponentSettingsForm(
             "pagure",
             "local",
             "git-force-push",
+            "azure_devops",
         )
         if self.instance.vcs not in vcses:
             vcses = (self.instance.vcs,)
@@ -1708,6 +1748,7 @@ class ComponentBranchForm(ComponentSelectForm):
         # We need a object, not integer here
         kwargs["source_language"] = component.source_language
         kwargs["project"] = component.project
+        kwargs["category"] = component.category
         for field in form_fields:
             kwargs[field] = data[field]
         self.instance = Component(**kwargs)
@@ -1948,7 +1989,12 @@ class ComponentRenameForm(SettingsBaseForm, ComponentDocsMixin):
 
     class Meta:
         model = Component
-        fields = ["slug"]
+        fields = ["name", "slug", "project", "category"]
+
+    def __init__(self, request, *args, **kwargs):
+        super().__init__(request, *args, **kwargs)
+        self.fields["project"].queryset = request.user.managed_projects
+        self.fields["category"].queryset = self.instance.project.category_set.all()
 
 
 class CategoryRenameForm(SettingsBaseForm):
@@ -1956,7 +2002,14 @@ class CategoryRenameForm(SettingsBaseForm):
 
     class Meta:
         model = Category
-        fields = ["name", "slug"]
+        fields = ["name", "slug", "project", "category"]
+
+    def __init__(self, request, *args, **kwargs):
+        super().__init__(request, *args, **kwargs)
+        self.fields["project"].queryset = request.user.managed_projects
+        self.fields["category"].queryset = self.instance.project.category_set.exclude(
+            pk=self.instance.pk
+        )
 
 
 class AddCategoryForm(SettingsBaseForm):
@@ -1975,34 +2028,6 @@ class AddCategoryForm(SettingsBaseForm):
         else:
             self.instance.project = self.parent
         super().clean()
-
-
-class CategoryMoveForm(SettingsBaseForm):
-    """Category rename form."""
-
-    class Meta:
-        model = Category
-        fields = ["project", "category"]
-
-    def __init__(self, request, *args, **kwargs):
-        super().__init__(request, *args, **kwargs)
-        self.fields["project"].queryset = request.user.managed_projects
-        self.fields["category"].queryset = self.instance.project.category_set.exclude(
-            pk=self.instance.pk
-        )
-
-
-class ComponentMoveForm(SettingsBaseForm, ComponentDocsMixin):
-    """Component renaming form."""
-
-    class Meta:
-        model = Component
-        fields = ["project", "category"]
-
-    def __init__(self, request, *args, **kwargs):
-        super().__init__(request, *args, **kwargs)
-        self.fields["project"].queryset = request.user.managed_projects
-        self.fields["category"].queryset = self.instance.project.category_set.all()
 
 
 class ProjectSettingsForm(SettingsBaseForm, ProjectDocsMixin, ProjectAntispamMixin):
@@ -2072,8 +2097,7 @@ class ProjectSettingsForm(SettingsBaseForm, ProjectDocsMixin, ProjectAntispamMix
     def save(self, commit: bool = True):
         super().save(commit=commit)
         if self.changed_access:
-            Change.objects.create(
-                project=self.instance,
+            self.instance.change_set.create(
                 action=Change.ACTION_ACCESS_EDIT,
                 user=self.user,
                 details={"access_control": self.instance.access_control},
@@ -2100,6 +2124,13 @@ class ProjectSettingsForm(SettingsBaseForm, ProjectDocsMixin, ProjectAntispamMix
                 Tab(
                     gettext("Basic"),
                     "name",
+                    ContextDiv(
+                        template="snippets/settings-organize.html",
+                        context={
+                            "object": self.instance,
+                            "type": "project",
+                        },
+                    ),
                     "web",
                     "instructions",
                     css_id="basic",
@@ -2166,7 +2197,7 @@ class ProjectRenameForm(SettingsBaseForm, ProjectDocsMixin):
 
     class Meta:
         model = Project
-        fields = ["slug"]
+        fields = ["name", "slug"]
 
 
 class BillingMixin(forms.Form):
@@ -2440,39 +2471,6 @@ def get_new_unit_form(translation, user, data=None, initial=None):
     return NewBilingualUnitForm(translation, user, data=data, initial=initial)
 
 
-class CachedQueryIterator(ModelChoiceIterator):
-    """
-    Choice iterator for cached querysets.
-
-    It assumes the queryset is reused and avoids using an iterator or counting queries.
-    """
-
-    def __iter__(self):
-        if self.field.empty_label is not None:
-            yield ("", self.field.empty_label)
-        for obj in self.queryset:
-            yield self.choice(obj)
-
-    def __len__(self):
-        return len(self.queryset) + (1 if self.field.empty_label is not None else 0)
-
-    def __bool__(self):
-        return self.field.empty_label is not None or bool(self.queryset)
-
-
-class CachedModelMultipleChoiceField(forms.ModelMultipleChoiceField):
-    iterator = CachedQueryIterator
-
-    def _get_queryset(self):
-        return self._queryset
-
-    def _set_queryset(self, queryset):
-        self._queryset = queryset
-        self.widget.choices = self.choices
-
-    queryset = property(_get_queryset, _set_queryset)
-
-
 class BulkEditForm(forms.Form):
     q = QueryField(required=True)
     state = forms.ChoiceField(
@@ -2515,13 +2513,11 @@ class BulkEditForm(forms.Form):
 
         # Filter offered states
         choices = self.fields["state"].choices
-        for value, label in STATE_CHOICES:
-            if value in excluded:
-                continue
-            if value == STATE_TRANSLATED and show_review:
-                label = gettext("Waiting for review")
-
-            choices.append((value, label))
+        choices.extend(
+            (state, get_state_label(state, label, show_review))
+            for state, label in StringState.choices
+            if state not in excluded
+        )
         self.fields["state"].choices = choices
 
         self.helper = FormHelper(self)
@@ -2813,22 +2809,40 @@ class WorkflowSettingForm(forms.ModelForm):
         instance=None,
         prefix=None,
         initial=None,
+        project: Project | None = None,
         **kwargs,
     ):
         if instance is not None:
             initial = {"enable": True}
+            if project is not None:
+                initial["translation_review"] = project.translation_review
+
+        self.project = project
         self.instance = instance
         super().__init__(
             data, files, instance=instance, initial=initial, prefix="workflow", **kwargs
         )
+        if self.project:
+            enable_field = self.fields["enable"]
+            enable_field.label = gettext(
+                "Customize translation workflow for this language in this project"
+            )
+            enable_field.help_text = gettext(
+                "The translation workflow is configured at project, component, and language. "
+                "By enabling customization here, you override these settings for this language in this project."
+            )
+
         self.helper = FormHelper(self)
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Field("enable"),
-            Field("translation_review"),
-            Field("enable_suggestions"),
-            Field("suggestion_voting"),
-            Field("suggestion_autoaccept"),
+            Div(
+                Field("translation_review"),
+                Field("enable_suggestions"),
+                Field("suggestion_voting"),
+                Field("suggestion_autoaccept"),
+                css_id="workflow-enable-target",
+            ),
         )
 
     def save(self, commit=True):

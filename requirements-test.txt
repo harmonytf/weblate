@@ -1,3 +1,4 @@
 -r requirements-optional.txt
-responses==0.23.3
-selenium==4.14.0
+responses==0.25.0
+respx==0.20.2
+selenium==4.17.2

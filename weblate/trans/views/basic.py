@@ -26,10 +26,8 @@ from weblate.trans.forms import (
     BulkEditForm,
     CategoryDeleteForm,
     CategoryLanguageDeleteForm,
-    CategoryMoveForm,
     CategoryRenameForm,
     ComponentDeleteForm,
-    ComponentMoveForm,
     ComponentRenameForm,
     DownloadForm,
     ProjectDeleteForm,
@@ -231,9 +229,9 @@ def show_project_language(request, obj):
 
     last_changes = Change.objects.last_changes(
         user, project=project_object, language=language_object
-    )[:10].preload()
+    ).recent()
 
-    translations = list(obj.translation_set)
+    translations = translation_prefetch_tasks(prefetch_stats(obj.translation_set))
 
     # Add ghost translations
     if user.is_authenticated:
@@ -259,7 +257,9 @@ def show_project_language(request, obj):
             "last_changes": last_changes,
             "translations": translations,
             "title": f"{project_object} - {language_object}",
-            "search_form": SearchForm(user, language=language_object),
+            "search_form": SearchForm(
+                user, language=language_object, initial=SearchForm.get_initial(request)
+            ),
             "licenses": project_object.component_set.exclude(license="").order_by(
                 "license"
             ),
@@ -290,8 +290,8 @@ def show_category_language(request, obj):
 
     last_changes = (
         Change.objects.last_changes(user, language=language_object)
-        .for_category(category_object)[:10]
-        .preload()
+        .for_category(category_object)
+        .recent()
     )
 
     translations = list(obj.translation_set)
@@ -318,7 +318,9 @@ def show_category_language(request, obj):
             "last_changes": last_changes,
             "translations": translations,
             "title": f"{category_object} - {language_object}",
-            "search_form": SearchForm(user, language=language_object),
+            "search_form": SearchForm(
+                user, language=language_object, initial=SearchForm.get_initial(request)
+            ),
             "licenses": obj.category.get_child_components_access(user)
             .exclude(license="")
             .order_by("license"),
@@ -343,12 +345,11 @@ def show_category_language(request, obj):
 
 
 def show_project(request, obj):
-    obj.stats.ensure_basic()
     user = request.user
 
-    all_changes = obj.change_set.prefetch().order()
-    last_changes = all_changes[:10].preload()
-    last_announcements = all_changes.filter_announcements()[:10].preload()
+    all_changes = obj.change_set.filter_components(request.user).prefetch()
+    last_changes = all_changes.recent()
+    last_announcements = all_changes.filter_announcements().recent()
 
     all_components = obj.get_child_components_access(
         user, lambda qs: qs.filter(category=None)
@@ -372,7 +373,9 @@ def show_project(request, obj):
             is_shared=component.is_shared,
         )
 
-    language_stats = sort_unicode(language_stats, user.profile.get_translation_order)
+    language_stats = sort_unicode(
+        language_stats, user.profile.get_translation_orderer(request)
+    )
 
     components = prefetch_tasks(all_components)
 
@@ -388,7 +391,9 @@ def show_project(request, obj):
             "last_announcements": last_announcements,
             "reports_form": ReportsForm({"project": obj}),
             "language_stats": [stat.obj or stat for stat in language_stats],
-            "search_form": SearchForm(request.user),
+            "search_form": SearchForm(
+                request.user, initial=SearchForm.get_initial(request)
+            ),
             "announcement_form": optional_form(
                 AnnouncementForm, user, "project.edit", obj
             ),
@@ -425,12 +430,13 @@ def show_project(request, obj):
 
 
 def show_category(request, obj):
-    obj.stats.ensure_basic()
     user = request.user
 
-    all_changes = Change.objects.for_category(obj).prefetch().order()
-    last_changes = all_changes[:10].preload()
-    last_announcements = all_changes.filter_announcements()[:10].preload()
+    all_changes = (
+        Change.objects.for_category(obj).filter_components(request.user).prefetch()
+    )
+    last_changes = all_changes.recent()
+    last_announcements = all_changes.filter_announcements().recent()
 
     all_components = obj.get_child_components_access(user)
     all_components = get_paginator(request, prefetch_stats(all_components))
@@ -449,9 +455,10 @@ def show_category(request, obj):
             GhostProjectLanguageStats,
         )
 
+    orderer = user.profile.get_translation_orderer(request)
     language_stats = sort_unicode(
         language_stats,
-        lambda x: f"{user.profile.get_translation_order(x)}-{x.language}",
+        lambda x: f"{orderer(x)}-{x.language}",
     )
 
     components = prefetch_tasks(all_components)
@@ -468,20 +475,12 @@ def show_category(request, obj):
             "last_changes": last_changes,
             "last_announcements": last_announcements,
             "language_stats": [stat.obj or stat for stat in language_stats],
-            "search_form": SearchForm(user),
+            "search_form": SearchForm(user, initial=SearchForm.get_initial(request)),
             "delete_form": optional_form(
                 CategoryDeleteForm, user, "project.edit", obj, obj=obj
             ),
             "rename_form": optional_form(
                 CategoryRenameForm,
-                user,
-                "project.edit",
-                obj,
-                request=request,
-                instance=obj,
-            ),
-            "move_form": optional_form(
-                CategoryMoveForm,
                 user,
                 "project.edit",
                 obj,
@@ -509,17 +508,18 @@ def show_category(request, obj):
 
 
 def show_component(request, obj):
-    obj.stats.ensure_basic()
     user = request.user
 
-    last_changes = obj.change_set.prefetch().order()[:10].preload("component")
+    last_changes = obj.change_set.prefetch().recent(skip_preload="component")
 
     translations = prefetch_stats(list(obj.translation_set.prefetch()))
 
     # Show ghost translations for user languages
     add_ghost_translations(obj, user, translations, GhostTranslation)
 
-    translations = sort_unicode(translations, user.profile.get_translation_order)
+    translations = sort_unicode(
+        translations, user.profile.get_translation_orderer(request)
+    )
 
     return render(
         request,
@@ -557,15 +557,9 @@ def show_component(request, obj):
                 request=request,
                 instance=obj,
             ),
-            "move_form": optional_form(
-                ComponentMoveForm,
-                user,
-                "component.edit",
-                obj,
-                request=request,
-                instance=obj,
+            "search_form": SearchForm(
+                request.user, initial=SearchForm.get_initial(request)
             ),
-            "search_form": SearchForm(request.user),
             "alerts": obj.all_active_alerts
             if "alerts" not in request.GET
             else obj.alert_set.all(),
@@ -576,14 +570,15 @@ def show_component(request, obj):
 def show_translation(request, obj):
     component = obj.component
     project = component.project
-    obj.stats.ensure_all()
-    last_changes = obj.change_set.prefetch().order()[:10].preload("translation")
+    last_changes = obj.change_set.prefetch().recent(skip_preload="translation")
     user = request.user
 
     # Get form
     form = get_upload_form(user, obj)
 
-    search_form = SearchForm(request.user, language=obj.language)
+    search_form = SearchForm(
+        request.user, language=obj.language, initial=SearchForm.get_initial(request)
+    )
 
     # Translations to same language from other components in this project
     # Show up to 10 of them, needs to be list to append ghost ones later
@@ -704,11 +699,11 @@ def new_language(request, path):
                             kwargs["translation"] = translation
                             if len(langs) == 1:
                                 result = translation
-                            Change.objects.create(
+                            obj.change_set.create(
                                 action=Change.ACTION_ADDED_LANGUAGE, **kwargs
                             )
                     elif obj.new_lang == "contact":
-                        Change.objects.create(
+                        obj.change_set.create(
                             action=Change.ACTION_REQUESTED_LANGUAGE, **kwargs
                         )
                         messages.success(

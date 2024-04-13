@@ -9,6 +9,7 @@ import uuid
 from collections import defaultdict
 from functools import cache as functools_cache
 from itertools import chain
+from typing import TYPE_CHECKING
 
 import sentry_sdk
 from appconf import AppConf
@@ -55,6 +56,9 @@ from weblate.utils.decorators import disable_for_loaddata
 from weblate.utils.fields import EmailField, UsernameField
 from weblate.utils.search import parse_query
 from weblate.utils.validators import CRUD_RE, validate_fullname, validate_username
+
+if TYPE_CHECKING:
+    from weblate.auth.models import PermissionResult
 
 
 class Permission(models.Model):
@@ -516,10 +520,10 @@ class User(AbstractBaseUser):
         """Compatibility API for third-party modules."""
         return self.full_name
 
-    def has_perms(self, perm_list, obj=None):
+    def has_perms(self, perm_list, obj=None) -> bool:
         return all(self.has_perm(perm, obj) for perm in perm_list)
 
-    def has_perm(self, perm: str, obj=None):
+    def has_perm(self, perm: str, obj=None) -> PermissionResult | bool:
         """Permission check."""
         # Weblate global scope permissions
         if perm in GLOBAL_PERM_NAMES:
@@ -606,10 +610,14 @@ class User(AbstractBaseUser):
 
     @cached_property
     def needs_component_restrictions_filter(self):
+        if self.is_superuser:
+            return False
         return self.allowed_projects.filter(component__restricted=True).exists()
 
     @cached_property
     def needs_project_filter(self):
+        if self.is_superuser:
+            return False
         return self.allowed_projects.count() != Project.objects.all().count()
 
     @cached_property
@@ -813,26 +821,16 @@ def create_groups(update):
     # Create permissions and roles
     migrate_permissions(Permission)
     new_roles = migrate_roles(Role, Permission)
-    migrate_groups(Group, Role, update)
+    builtin_groups = migrate_groups(Group, Role, update)
 
     # Create anonymous user
     create_anonymous(User, Group, update)
 
     # Automatic assignment to the users group
-    group = Group.objects.get(
-        name="Users",
-        internal=True,
-        project_selection=SELECTION_ALL_PUBLIC,
-        language_selection=SELECTION_ALL,
-    )
+    group = builtin_groups["Users"]
     if not AutoGroup.objects.filter(group=group).exists():
         AutoGroup.objects.create(group=group, match="^.*$")
-    group = Group.objects.get(
-        name="Viewers",
-        internal=True,
-        project_selection=SELECTION_ALL_PROTECTED,
-        language_selection=SELECTION_ALL,
-    )
+    group = builtin_groups["Viewers"]
     if not AutoGroup.objects.filter(group=group).exists():
         AutoGroup.objects.create(group=group, match="^.*$")
 

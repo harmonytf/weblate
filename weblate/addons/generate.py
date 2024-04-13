@@ -6,7 +6,7 @@ from django.db.models import F, Q
 from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import BaseAddon
-from weblate.addons.events import EVENT_COMPONENT_UPDATE, EVENT_DAILY, EVENT_PRE_COMMIT
+from weblate.addons.events import AddonEvent
 from weblate.addons.forms import GenerateForm, PseudolocaleAddonForm
 from weblate.checks.flags import Flags
 from weblate.trans.models import Change, Translation
@@ -21,7 +21,7 @@ from weblate.utils.state import (
 
 
 class GenerateFileAddon(BaseAddon):
-    events = (EVENT_PRE_COMMIT,)
+    events = (AddonEvent.EVENT_PRE_COMMIT,)
     name = "weblate.generate.generate"
     verbose = gettext_lazy("Statistics generator")
     description = gettext_lazy(
@@ -52,7 +52,7 @@ class GenerateFileAddon(BaseAddon):
 
 
 class LocaleGenerateAddonBase(BaseAddon):
-    events = (EVENT_COMPONENT_UPDATE, EVENT_DAILY)
+    events = (AddonEvent.EVENT_COMPONENT_UPDATE, AddonEvent.EVENT_DAILY)
     multiple = True
     icon = "language.svg"
 
@@ -150,14 +150,18 @@ class PseudolocaleAddon(LocaleGenerateAddonBase):
             report_error(cause="add-on error", project=component.project)
             self.instance.disable()
             return
+        var_multiplier = self.instance.configuration.get("var_multiplier")
+        # As it is optional, it can be stored as None
+        if var_multiplier is None:
+            var_multiplier = 0.1
         self.generate_translation(
             source_translation,
             target_translation,
-            prefix=self.instance.configuration["prefix"],
-            suffix=self.instance.configuration["suffix"],
+            prefix=self.instance.configuration.get("prefix", ""),
+            suffix=self.instance.configuration.get("suffix", ""),
             var_prefix=self.instance.configuration.get("var_prefix", ""),
             var_suffix=self.instance.configuration.get("var_suffix", ""),
-            var_multiplier=self.instance.configuration.get("var_multiplier", 0.1),
+            var_multiplier=var_multiplier,
             query=query,
         )
 

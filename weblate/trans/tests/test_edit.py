@@ -485,9 +485,6 @@ class EditJSONMonoTest(EditTest):
         response = self.add_unit("key")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "New string has been added")
-        response = self.add_unit("key.['foo']")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Could not parse the key:")
 
 
 class EditJavaTest(EditTest):
@@ -980,3 +977,44 @@ class EditComplexTest(ViewTestCase):
         # The source unit should be now removed as well
         self.assertFalse(Unit.objects.filter(pk=source_unit.pk).exists())
         self.assertEqual(unit_count - 4, Unit.objects.count())
+
+
+class EditSourceTest(ViewTestCase):
+    def create_component(self):
+        return self.create_ts_mono()
+
+    def test_edit_source_pending(self):
+        old_revision = self.get_translation().revision
+
+        # Edit source string
+        self.edit_unit("Hello, world!\n", "Hello, beautiful world!\n", language="en")
+
+        # Force commiting source string change
+        self.component.commit_pending("test", None)
+
+        # Translation revision should have been updated now
+        self.assertNotEqual(old_revision, self.get_translation().revision)
+
+        # Add translation
+        self.edit_unit("Hello, beautiful world!\n", "Ahoj, světe!\n", language="cs")
+
+        # Verify it has been stored in the database
+        self.assertEqual(
+            self.get_unit("Hello, beautiful world!\n", language="cs").target,
+            "Ahoj, světe!\n",
+        )
+
+        # Check sync should be no-op now
+        self.component.create_translations()
+
+        # Check that translation was preserved
+        self.assertEqual(
+            self.get_unit("Hello, beautiful world!\n", language="cs").target,
+            "Ahoj, světe!\n",
+        )
+
+
+class EditSourceAddonTest(EditSourceTest):
+    def create_component(self):
+        # This pulls in cleanup add-on
+        return self.create_android()

@@ -16,6 +16,7 @@ class WeblateConf(AppConf):
     WEBLATE_MACHINERY = (
         "weblate.machinery.apertium.ApertiumAPYTranslation",
         "weblate.machinery.aws.AWSTranslation",
+        "weblate.machinery.alibaba.AlibabaTranslation",
         "weblate.machinery.baidu.BaiduTranslation",
         "weblate.machinery.deepl.DeepLTranslation",
         "weblate.machinery.glosbe.GlosbeTranslation",
@@ -23,7 +24,6 @@ class WeblateConf(AppConf):
         "weblate.machinery.googlev3.GoogleV3Translation",
         "weblate.machinery.libretranslate.LibreTranslateTranslation",
         "weblate.machinery.microsoft.MicrosoftCognitiveTranslation",
-        "weblate.machinery.microsoftterminology.MicrosoftTerminologyService",
         "weblate.machinery.modernmt.ModernMTTranslation",
         "weblate.machinery.mymemory.MyMemoryTranslation",
         "weblate.machinery.netease.NeteaseSightTranslation",
@@ -34,6 +34,7 @@ class WeblateConf(AppConf):
         "weblate.machinery.saptranslationhub.SAPTranslationHub",
         "weblate.machinery.youdao.YoudaoTranslation",
         "weblate.machinery.ibm.IBMTranslation",
+        "weblate.machinery.openai.OpenAITranslation",
         "weblate.machinery.weblatetm.WeblateTranslation",
         "weblate.memory.machine.WeblateMemory",
     )

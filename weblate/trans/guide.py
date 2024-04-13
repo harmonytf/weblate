@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import os
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
@@ -14,6 +17,9 @@ from weblate.addons.models import ADDONS
 from weblate.trans.models import Change
 from weblate.utils.docs import get_doc_url
 
+if TYPE_CHECKING:
+    from django_stubs_ext import StrOrPromise
+
 GUIDELINES = []
 
 
@@ -23,10 +29,11 @@ def register(cls):
 
 
 class Guideline:
-    description = ""
+    description: StrOrPromise = ""
     group = False
     url = ""
     anchor = ""
+    hint = False
 
     def __init__(self, component):
         self.component = component
@@ -206,10 +213,11 @@ class FlagsGuideline(Guideline):
 @register
 class SafeHTMLGuideline(Guideline):
     description = gettext_lazy(
-        "Add safe-html flag to avoid dangerous HTML from translators."
+        "Add safe-html flag to avoid dangerous HTML from translators for strings which are rendered as HTML."
     )
     url = "settings"
     anchor = "show"
+    hint = True
 
     def is_relevant(self):
         cache_key = f"guide:safe-html:{self.component.id}"
@@ -274,6 +282,7 @@ class AddonGuideline(Guideline):
 @register
 class LanguageConsistencyGuideline(AddonGuideline):
     addon = "weblate.consistency.languages"
+    hint = True
 
     def is_relevant(self):
         if self.component.project.component_set.exclude(is_glossary=True).count() <= 1:
@@ -294,6 +303,7 @@ class ConfigureGuideline(AddonGuideline):
 @register
 class CleanupGuideline(AddonGuideline):
     addon = "weblate.cleanup.generic"
+    hint = True
 
 
 @register

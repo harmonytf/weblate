@@ -16,14 +16,18 @@
 #
 import os
 import sys
+from pathlib import Path
+
+from matplotlib import font_manager
 
 # -- Path setup --------------------------------------------------------------
 
-# sys.path.insert(0, os.path.abspath('.'))
+file_dir = Path(__file__).parent.resolve()
+weblate_dir = file_dir.parent
 # Our extension
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "_ext")))
+sys.path.append(str(file_dir / "_ext"))
 # Weblate code
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(str(weblate_dir))
 
 
 def setup(app):
@@ -35,6 +39,18 @@ def setup(app):
         indextemplate="pair: %s; configuration value",
     )
 
+    font_dirs = [
+        str(weblate_dir / font_dir)
+        for font_dir in (
+            "weblate/static/vendor/font-source/TTF/",
+            "weblate/static/vendor/font-kurinto/",
+        )
+    ]
+    font_files = font_manager.findSystemFonts(fontpaths=font_dirs)
+
+    for font_file in font_files:
+        font_manager.fontManager.addfont(font_file)
+
 
 # -- Project information -----------------------------------------------------
 
@@ -43,7 +59,7 @@ copyright = "Michal Čihař"
 author = "Michal Čihař"
 
 # The full version, including alpha/beta/rc tags
-release = "5.1.1"
+release = "5.4.3"
 
 
 # -- General configuration ---------------------------------------------------
@@ -80,6 +96,7 @@ ogp_social_cards = {
     "image": "../weblate/static/logo-1024.png",
     "line_color": "#144d3f",
     "site_url": "docs.weblate.org",
+    "font": ["Source Sans 3", "Kurinto Sans"],
 }
 ogp_custom_meta_tags = [
     '<meta property="fb:app_id" content="741121112629028" />',
@@ -217,7 +234,7 @@ rtd_lang = os.environ.get("READTHEDOCS_LANGUAGE")
 python_doc_url = "https://docs.python.org/3/"
 if rtd_lang == "pt_BR":
     python_doc_url = "https://docs.python.org/pt-br/3/"
-elif rtd_lang in ("es", "fr", "ja", "ko"):
+elif rtd_lang in ("es", "fr", "ja", "ko", "tr"):
     python_doc_url = f"https://docs.python.org/{rtd_lang}/3/"
 elif rtd_lang == "zh_CN":
     python_doc_url = "https://docs.python.org/zh-cn/3/"
@@ -232,7 +249,7 @@ elif rtd_lang == "pt_BR":
 elif rtd_lang == "zh_CN":
     django_doc_url = "https://docs.djangoproject.com/zh-hans/stable/"
 
-sphinx_doc_url = "https://www.sphinx-doc.org/en/stable/"
+sphinx_doc_url = "https://www.sphinx-doc.org/en/master/"
 if rtd_lang in (
     "ar",
     "ca",
@@ -247,8 +264,9 @@ if rtd_lang in (
     "pt_BR",
     "sr",
     "zh_CN",
+    "zh_TW",
 ):
-    sphinx_doc_url = f"https://www.sphinx-doc.org/{rtd_lang}/stable/"
+    sphinx_doc_url = f"https://www.sphinx-doc.org/{rtd_lang}/master/"
 
 # Configuration for intersphinx
 intersphinx_mapping = {
@@ -306,8 +324,9 @@ linkcheck_ignore = [
     "http://ftp.pwg.org/",
     # Access to our service has been temporarily blocked
     "https://yandex.com/dev/translate/",
-    # TODO: Expired SSL certificate
-    "https://docs.oasis-open.org/",
+    # 403
+    "https://platform.openai.com/account/api-keys",
+    "https://platform.openai.com/docs/models",
 ]
 
 # HTTP docs

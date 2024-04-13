@@ -32,6 +32,14 @@ The generated backups are kept on the server as configured by
 :setting:`PROJECT_BACKUP_KEEP_DAYS` and :setting:`PROJECT_BACKUP_KEEP_COUNT`
 (it defaults to keep at most 3 backups for 30 days).
 
+.. note::
+
+   Restoring of the backup might fail if the restoring server has different set
+   of :ref:`languages` or different configuration of
+   :setting:`SIMPLIFY_LANGUAGES`. The restore will tell you which language
+   codes could not be processed and you can then add missing langage
+   definitions manually.
+
 Automated backup using BorgBackup
 ---------------------------------
 
@@ -185,7 +193,7 @@ Restoring from BorgBackup
    When using Docker container place the data into the data volume, see
    :ref:`docker-volume`.
 
-   Please make sure the files have correct ownership and permissions, see :ref:`file-permissions`.
+   Please ensure the files have correct ownership and permissions, see :ref:`file-permissions`.
 
 The Borg session might look like this:
 

@@ -2,13 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from datetime import datetime
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import Count, Q
 from django.db.models.base import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.html import escape, format_html
 from django.utils.translation import gettext, gettext_lazy, pgettext, pgettext_lazy
@@ -18,8 +21,14 @@ from weblate.lang.models import Language
 from weblate.trans.mixins import UserDisplayMixin
 from weblate.trans.models.alert import ALERTS
 from weblate.trans.models.project import Project
+from weblate.utils.decorators import disable_for_loaddata
 from weblate.utils.pii import mask_email
-from weblate.utils.state import STATE_LOOKUP
+from weblate.utils.state import StringState
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from weblate.trans.models import Translation
 
 
 class ChangeQuerySet(models.QuerySet):
@@ -111,23 +120,23 @@ class ChangeQuerySet(models.QuerySet):
             "translation__plural",
         )
 
-    @staticmethod
-    def preload_list(results, *args):
+    def preload_list(self, results, skip: str | None = None):
         """Companion for prefetch to fill in nested references."""
         for item in results:
-            if item.component and "component" not in args:
+            if item.component and skip != "component":
                 item.component.project = item.project
-            if item.translation and "translation" not in args:
+            if item.translation and skip != "translation":
                 item.translation.component = item.component
-            if item.unit and "unit" not in args:
+            if item.unit and skip != "unit":
                 item.unit.translation = item.translation
         return results
 
-    def preload(self, *args):
-        """Companion for prefetch to fill in nested references."""
-        return self.preload_list(self, *args)
-
-    def authors_list(self, date_range=None):
+    def authors_list(
+        self,
+        date_range: tuple[datetime, datetime] | None = None,
+        *,
+        values_list: tuple[str, ...] = (),
+    ):
         """Return list of authors."""
         authors = self.content()
         if date_range is not None:
@@ -136,16 +145,34 @@ class ChangeQuerySet(models.QuerySet):
             authors.exclude(author__isnull=True)
             .values("author")
             .annotate(change_count=Count("id"))
-            .values_list("author__email", "author__full_name", "change_count")
+            .values_list(
+                "author__email", "author__full_name", "change_count", *values_list
+            )
         )
 
     def order(self):
         return self.order_by("-timestamp")
 
+    def recent(self, *, count: int = 10, skip_preload: str | None = None):
+        """
+        Return recent changes to show on object pages.
+
+        This uses iterator() as server-side cursors are typically
+        more effective here.
+        """
+        result = []
+        with transaction.atomic():
+            for change in self.order().iterator(chunk_size=count):
+                result.append(change)
+                if len(result) >= count:
+                    break
+            return self.preload_list(result, skip_preload)
+
     def bulk_create(self, *args, **kwargs):
         """Adds processing to bulk creation."""
         changes = super().bulk_create(*args, **kwargs)
-        # Executes post save to ensure messages are sent to fedora messaging
+        # Executes post save to ensure messages are sent as notifications
+        # or to fedora messaging
         for change in changes:
             post_save.send(change.__class__, instance=change, created=True)
         # Store last content change in cache for improved performance
@@ -286,6 +313,7 @@ class Change(models.Model, UserDisplayMixin):
     ACTION_RENAME_CATEGORY = 68
     ACTION_MOVE_CATEGORY = 69
     ACTION_SAVE_FAILED = 70
+    ACTION_NEW_UNIT_REPO = 71
 
     ACTION_CHOICES = (
         # Translators: Name of event in the history
@@ -421,6 +449,8 @@ class Change(models.Model, UserDisplayMixin):
         (ACTION_MOVE_CATEGORY, gettext_lazy("Category moved")),
         # Translators: Name of event in the history
         (ACTION_SAVE_FAILED, gettext_lazy("Saving string failed")),
+        # Translators: Name of event in the history
+        (ACTION_NEW_UNIT_REPO, gettext_lazy("String added in the repository")),
     )
     ACTIONS_DICT = dict(ACTION_CHOICES)
     ACTION_STRINGS = {
@@ -456,6 +486,7 @@ class Change(models.Model, UserDisplayMixin):
         ACTION_MARKED_EDIT,
         ACTION_SOURCE_CHANGE,
         ACTION_EXPLANATION,
+        ACTION_NEW_UNIT,
     }
 
     # Actions shown on the repository management page
@@ -480,6 +511,7 @@ class Change(models.Model, UserDisplayMixin):
         ACTION_BULK_EDIT,
         ACTION_NEW_UNIT,
         ACTION_STRING_REPO_UPDATE,
+        ACTION_NEW_UNIT_REPO,
     }
 
     # Actions indicating a repository merge failure
@@ -573,16 +605,18 @@ class Change(models.Model, UserDisplayMixin):
         }
 
     def save(self, *args, **kwargs):
-        from weblate.accounts.tasks import notify_change
-
         self.fixup_refereces()
 
         super().save(*args, **kwargs)
-        transaction.on_commit(lambda: notify_change.delay(self.pk))
+
         if self.is_last_content_change_storable():
             # Update cache for stats so that it does not have to hit
             # the database again
             self.translation.stats.last_change_cache = self
+            if self.translation.stats.is_loaded:
+                self.translation.stats.fetch_last_change()
+            self.translation.invalidate_cache()
+
             transaction.on_commit(self.update_cache_last_change)
 
     def get_absolute_url(self):
@@ -625,16 +659,17 @@ class Change(models.Model, UserDisplayMixin):
     def get_last_change_cache_key(translation_id: int):
         return f"last-content-change-{translation_id}"
 
+    @classmethod
+    def store_last_change(cls, translation: Translation, change: Change | None):
+        translation.stats.last_change_cache = change
+        cache_key = cls.get_last_change_cache_key(translation.id)
+        cache.set(cache_key, change.pk if change else 0, 180 * 86400)
+
     def is_last_content_change_storable(self):
-        return self.translation_id and self.action in self.ACTIONS_CONTENT
+        return self.translation_id
 
     def update_cache_last_change(self):
-        cache_key = self.get_last_change_cache_key(self.translation_id)
-        cache.set(cache_key, self.pk, 180 * 86400)
-        self.translation.stats.store("last_changed", self.timestamp)
-        self.translation.stats.store("last_author", self.author_id)
-        self.translation.stats.save()
-        return True
+        self.store_last_change(self.translation, self)
 
     def fixup_refereces(self):
         """Updates references based to least specific one."""
@@ -661,9 +696,9 @@ class Change(models.Model, UserDisplayMixin):
 
     def get_state_display(self):
         state = self.details.get("state")
-        if not state:
+        if state is None:
             return ""
-        return STATE_LOOKUP[state]
+        return StringState(state).label
 
     def is_merge_failure(self):
         return self.action in self.ACTIONS_MERGE_FAILURE
@@ -784,6 +819,19 @@ class Change(models.Model, UserDisplayMixin):
             return "{service_long_name}: {repo_url}, {branch}".format(**details)
         if self.action == self.ACTION_COMMENT and "comment" in details:
             return render_markdown(details["comment"])
+        if self.action in (self.ACTION_RESET, self.ACTION_MERGE, self.ACTION_REBASE):
+            return format_html(
+                "{}<br/><br/>{}<br/>{}",
+                self.get_action_display(),
+                format_html(
+                    escape(gettext("Original revision: {}")),
+                    details.get("previous_head", "N/A"),
+                ),
+                format_html(
+                    escape(gettext("New revision: {}")),
+                    details.get("new_head", "N/A"),
+                ),
+            )
 
         return ""
 
@@ -806,3 +854,11 @@ class Change(models.Model, UserDisplayMixin):
             self.ACTION_SUGGESTION_DELETE,
             self.ACTION_SUGGESTION_CLEANUP,
         )
+
+
+@receiver(post_save, sender=Change)
+@disable_for_loaddata
+def change_notify(sender, instance, created=False, **kwargs):
+    from weblate.accounts.tasks import notify_change
+
+    transaction.on_commit(lambda: notify_change.delay(instance.pk))

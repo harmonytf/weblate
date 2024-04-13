@@ -137,6 +137,8 @@ GLOBAL_PERMISSIONS = (
     ("machinery.edit", gettext_noop("Manage machinery")),
     # Translators: Permission name
     ("componentlist.edit", gettext_noop("Manage component lists")),
+    # Translators: Permission name
+    ("billing.manage", gettext_noop("Manage billing")),
 )
 
 GLOBAL_PERM_NAMES = {perm[0] for perm in GLOBAL_PERMISSIONS}
@@ -216,7 +218,10 @@ ROLES = (
         pgettext_noop("Access-control role", "Manage screenshots"),
         filter_perms("screenshot."),
     ),
-    (pgettext_noop("Access-control role", "Manage repository"), filter_perms("vcs.")),
+    (
+        pgettext_noop("Access-control role", "Manage repository"),
+        filter_perms("vcs.") | {"component.lock"},
+    ),
     (pgettext_noop("Access-control role", "Billing"), filter_perms("billing.")),
     (pgettext_noop("Access-control role", "Add new projects"), {"project.add"}),
 )

@@ -186,7 +186,7 @@ function isNumber(n) {
 
 function extractText(cell) {
   var value = cell.getAttribute("data-value");
-  if (typeof value !== "undefined") {
+  if (value !== null) {
     return value;
   }
   return $.text(cell);
@@ -356,6 +356,66 @@ function initHighlight(root) {
   if (typeof ResizeObserver === "undefined") {
     return;
   }
+  root.querySelectorAll("textarea[name='q']").forEach((input) => {
+    var parent = input.parentElement;
+    if (parent.classList.contains("editor-wrap")) {
+      return;
+    }
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        if (!event.repeat) {
+          event.target.form.requestSubmit();
+        }
+        event.preventDefault();
+      }
+    });
+
+    /* Create wrapper element */
+    var wrapper = document.createElement("div");
+    wrapper.setAttribute("class", "editor-wrap");
+
+    /* Inject wrapper */
+    parent.replaceChild(wrapper, input);
+
+    /* Create highlighter */
+    var highlight = document.createElement("div");
+    highlight.setAttribute("class", "highlighted-output");
+    highlight.setAttribute("role", "status");
+    wrapper.appendChild(highlight);
+
+    /* Add input to wrapper */
+    wrapper.appendChild(input);
+
+    var syncContent = function () {
+      highlight.innerHTML = Prism.highlight(
+        input.value,
+        Prism.languages.weblatesearch,
+        "weblatesearch",
+      );
+    };
+    syncContent();
+    input.addEventListener("input", syncContent);
+
+    /* Handle scrolling */
+    input.addEventListener("scroll", (event) => {
+      highlight.scrollTop = input.scrollTop;
+      highlight.scrollLeft = input.scrollLeft;
+    });
+
+    /* Handle resizing */
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        if (entry.target === input) {
+          // match the height and width of the output area to the input area
+          highlight.style.height = input.offsetHeight + "px";
+          highlight.style.width = input.offsetWidth + "px";
+        }
+      }
+    });
+
+    resizeObserver.observe(input);
+  });
   root.querySelectorAll(".highlight-editor").forEach(function (editor) {
     var parent = editor.parentElement;
     var hasFocus = editor == document.activeElement;
@@ -405,7 +465,7 @@ function initHighlight(root) {
       let whitespace_regex = new RegExp(
         [
           "  +|(^) +| +(?=$)| +\n|\n +|\t|",
-          "\u00A0|\u1680|\u2000|\u2001|",
+          "\u00A0|\u00AD|\u1680|\u2000|\u2001|",
           "\u2002|\u2003|\u2004|\u2005|",
           "\u2006|\u2007|\u2008|\u2009|",
           "\u200A|\u202F|\u205F|\u3000",
@@ -440,6 +500,7 @@ function initHighlight(root) {
 
     /* Handle scrolling */
     editor.addEventListener("scroll", (event) => {
+      console.log(event);
       highlight.scrollTop = editor.scrollTop;
       highlight.scrollLeft = editor.scrollLeft;
     });
@@ -932,7 +993,7 @@ $(function () {
       $("#position-input").show();
       $("#position-input-editable-input").attr("type", "hidden");
       $("#position-input-editable").hide();
-      document.removeEventListener("click", clickedOutsideEditableInput);
+      document.emoveEventListener("click", clickedOutsideEditableInput);
       document.removeEventListener("keyup", pressedEscape);
     }
   };
@@ -968,7 +1029,7 @@ $(function () {
     }
 
     if ($group.hasClass("query-field")) {
-      $group.find("input[name=q]").val($this.data("field"));
+      $group.find("textarea[name=q]").val($this.data("field"));
       if ($this.closest(".result-page-form").length) {
         var $form = $this.closest("form");
         $form.find("input[name=offset]").prop("disabled", true);
@@ -1003,7 +1064,7 @@ $(function () {
         return false;
       }
     });
-  $("#id_q").on("change", function (event) {
+  $("#id_q").on("input", function (event) {
     var $form = $(this).closest("form");
     $form.find("input[name=offset]").prop("disabled", true);
   });
@@ -1157,6 +1218,28 @@ $(function () {
     }
   });
 
+  /* Notifications removal */
+  document
+    .querySelectorAll(".nav-pills > li > a > button.close")
+    .forEach((button) => {
+      button.addEventListener("click", (e) => {
+        let link = button.parentElement;
+        document
+          .querySelectorAll(link.getAttribute("href") + " select")
+          .forEach((select) => select.remove());
+        //      document.getElementById(link.getAttribute("href").substring(1)).remove();
+        link.parentElement.remove();
+        /* Activate watched tab */
+        $("a[href='#notifications__1']").tab("show");
+        addAlert(
+          gettext(
+            "Notification settings removed, please do not forget to save the changes.",
+          ),
+          "info",
+        );
+      });
+    });
+
   /* User autocomplete */
   document
     .querySelectorAll(".user-autocomplete")
@@ -1257,6 +1340,31 @@ $(function () {
         },
       },
     },
+  });
+
+  /* Workflow customization form */
+  document.querySelectorAll("#id_workflow-enable").forEach((enableInput) => {
+    enableInput.addEventListener("click", () => {
+      if (!enableInput.checked) {
+        document.getElementById("workflow-enable-target").style.visibility =
+          "hidden";
+        document.getElementById("workflow-enable-target").style.opacity = 0;
+      } else {
+        document.getElementById("workflow-enable-target").style.visibility =
+          "visible";
+        document.getElementById("workflow-enable-target").style.opacity = 1;
+      }
+    });
+    enableInput.dispatchEvent(new Event("click"));
+  });
+
+  /* Move current translation into the view */
+  $('a[data-toggle="tab"][href="#nearby"]').on("shown.bs.tab", function (e) {
+    document.querySelector("#nearby .current_translation").scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: "smooth",
+    });
   });
 
   document.querySelectorAll("[data-visibility]").forEach((toggle) => {

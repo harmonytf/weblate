@@ -8,6 +8,7 @@ import re
 from collections import defaultdict
 from gettext import c2py
 from itertools import chain
+from operator import itemgetter
 from typing import Callable
 from weakref import WeakValueDictionary
 
@@ -23,7 +24,7 @@ from django.utils.translation import gettext, gettext_lazy, pgettext_lazy
 from django.utils.translation.trans_real import parse_accept_lang_header
 from weblate_language_data.aliases import ALIASES
 from weblate_language_data.countries import DEFAULT_LANGS
-from weblate_language_data.plurals import CLDRPLURALS, EXTRAPLURALS
+from weblate_language_data.plurals import CLDRPLURALS, EXTRAPLURALS, QTPLURALS
 from weblate_language_data.rtl import RTL_LANGS
 
 from weblate.checks.format import BaseFormatCheck
@@ -32,7 +33,7 @@ from weblate.lang import data
 from weblate.logger import LOGGER
 from weblate.trans.defines import LANGUAGE_CODE_LENGTH, LANGUAGE_NAME_LENGTH
 from weblate.trans.mixins import CacheKeyMixin
-from weblate.trans.util import sort_objects, sort_unicode
+from weblate.trans.util import is_ngram_code, sort_objects, sort_unicode
 from weblate.utils.validators import validate_plural_formula
 
 PLURAL_RE = re.compile(
@@ -376,7 +377,7 @@ class LanguageQuerySet(models.QuerySet):
                     (code if use_code else pk, f"{gettext(name)} ({code})", name)
                     for pk, name, code in self.values_list("pk", "name", "code")
                 ),
-                lambda tup: tup[2],
+                itemgetter(2),
             )
         )
 
@@ -500,6 +501,7 @@ class LanguageManager(models.Manager.from_queryset(LanguageQuerySet)):
         extra_plurals = (
             (Plural.SOURCE_GETTEXT, EXTRAPLURALS),
             (Plural.SOURCE_CLDR, CLDRPLURALS),
+            (Plural.SOURCE_QT, QTPLURALS),
         )
         for source, definitions in extra_plurals:
             for code, _unused, nplurals, plural_formula in definitions:
@@ -634,11 +636,11 @@ class Language(models.Model, CacheKeyMixin):
         return format_html('lang="{}" dir="{}"', self.code, self.direction)
 
     @cached_property
-    def base_code(self):
+    def base_code(self) -> str:
         return self.code.replace("_", "-").split("-")[0]
 
-    def uses_ngram(self):
-        return self.base_code in ("ja", "zh", "ko")
+    def uses_ngram(self) -> bool:
+        return is_ngram_code(self.base_code)
 
     @cached_property
     def plural(self):
@@ -650,6 +652,10 @@ class Language(models.Model, CacheKeyMixin):
 
     def get_aliases_names(self):
         return [alias for alias, codename in ALIASES.items() if codename == self.code]
+
+    def is_base(self, vals: tuple[str, ...]) -> bool:
+        """Detect whether language is in given list, ignores variants."""
+        return self.base_code in vals
 
 
 class PluralQuerySet(models.QuerySet):
@@ -752,6 +758,10 @@ class Plural(models.Model):
             pgettext_lazy("Plural type", "One/few/many"),
         ),
         (
+            data.PLURAL_ONE_ZERO_FEW_OTHER,
+            pgettext_lazy("Plural type", "One/zero/few/other"),
+        ),
+        (
             data.PLURAL_UNKNOWN,
             pgettext_lazy("Plural type", "Unknown"),
         ),
@@ -762,6 +772,7 @@ class Plural(models.Model):
     SOURCE_CLDR_ZERO = 3
     SOURCE_CLDR = 4
     SOURCE_ANDROID = 5
+    SOURCE_QT = 6
     source = models.SmallIntegerField(
         default=SOURCE_DEFAULT,
         verbose_name=gettext_lazy("Plural definition source"),
@@ -771,6 +782,7 @@ class Plural(models.Model):
             (SOURCE_CLDR_ZERO, gettext_lazy("CLDR plural with zero")),
             (SOURCE_CLDR, gettext_lazy("CLDR v38+ plural")),
             (SOURCE_ANDROID, gettext_lazy("Android plural")),
+            (SOURCE_QT, gettext_lazy("Qt Linguist plural")),
             (SOURCE_MANUAL, gettext_lazy("Manually entered formula")),
         ),
     )
@@ -970,6 +982,10 @@ class PluralMapper:
                     s = format_check.interpolate_number(s, number_to_interpolate)
                 strings_to_translate.append(s)
         return strings_to_translate
+
+    def map_units(self, units):
+        for unit in units:
+            unit.plural_map = self.map(unit)
 
     def zip(self, sources, targets, unit):
         if len(sources) != self.source_plural.number:

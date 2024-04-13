@@ -6,10 +6,15 @@ Contribute your changes upstream so that everybody can benefit. This reduces
 your maintenance costs; code in Weblate is taken care of when changing internal
 interfaces or refactoring the code.
 
+.. hint::
+
+   You can also customize Weblate look in :ref:`manage-appearance`.
+
 .. warning::
 
+
    Neither internal interfaces nor templates are considered a stable API.
-   Please review your own customizations for every upgrade, the interfaces or their
+   Please review your customizations for every upgrade, the interfaces or their
    semantics might change without notice.
 
 .. seealso::
@@ -59,7 +64,7 @@ Better yet, turn your customization into a proper Python package:
 
 3. Create a folder for the Python module (also called ``weblate_customization``)
    for the customization code.
-4. Within it, create a :file:`__init__.py` file to make sure Python can import the module.
+4. Within it, create a :file:`__init__.py` file to ensure Python can import the module.
 5. This package can now be installed using :command:`pip install -e`. More info to be found in :ref:`pip:editable-installs`.
 6. Once installed, the module can be used in the Weblate configuration
    (for example ``weblate_customization.checks.FooCheck``).

@@ -2,10 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
+import os
+
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -14,13 +19,12 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView, View
 
+from weblate.trans.backups import PROJECTBACKUP_PREFIX
 from weblate.trans.forms import (
     AddCategoryForm,
     AnnouncementForm,
     BaseDeleteForm,
-    CategoryMoveForm,
     CategoryRenameForm,
-    ComponentMoveForm,
     ComponentRenameForm,
     ComponentSettingsForm,
     ProjectRenameForm,
@@ -40,9 +44,11 @@ from weblate.trans.tasks import (
     component_removal,
     create_project_backup,
     project_removal,
+    remove_project_backup_download,
 )
 from weblate.trans.util import redirect_param, render
 from weblate.utils import messages
+from weblate.utils.random import get_random_identifier
 from weblate.utils.stats import CategoryLanguage, ProjectLanguage
 from weblate.utils.views import parse_path, show_form_errors
 
@@ -88,7 +94,9 @@ def change_project_language(request, obj):
         instance = None
 
     if request.method == "POST":
-        settings_form = WorkflowSettingForm(request.POST, instance=instance)
+        settings_form = WorkflowSettingForm(
+            request.POST, instance=instance, project=obj.project
+        )
         if settings_form.is_valid():
             settings_form.instance.project = obj.project
             settings_form.instance.language = obj.language
@@ -99,7 +107,7 @@ def change_project_language(request, obj):
             request, gettext("Invalid settings. Please check the form for errors.")
         )
     else:
-        settings_form = WorkflowSettingForm(instance=instance)
+        settings_form = WorkflowSettingForm(instance=instance, project=obj.project)
 
     return render(
         request,
@@ -205,7 +213,7 @@ def remove(request, path):
 
         messages.success(request, gettext("A language in the project was removed."))
     elif isinstance(obj, CategoryLanguage):
-        parent = obj.project
+        parent = obj.category
         for translation in obj.translation_set:
             translation.remove(request.user)
 
@@ -242,18 +250,9 @@ def perform_rename(form_cls, request, obj, perm: str):
     obj = form.save()
 
     # Invalidate new stats
-    obj.stats.update_parents(old_stats)
+    obj.stats.update_parents(extra_objects=old_stats)
 
     return redirect(obj)
-
-
-@login_required
-@require_POST
-def move(request, path):
-    obj = parse_path(request, path, (Component, Category))
-    if isinstance(obj, Category):
-        return perform_rename(CategoryMoveForm, request, obj, "project.edit")
-    return perform_rename(ComponentMoveForm, request, obj, "project.edit")
 
 
 @login_required
@@ -379,10 +378,18 @@ class BackupsView(BackupsMixin, TemplateView):
 class BackupsDownloadView(BackupsMixin, View):
     def get(self, request, *args, **kwargs):
         for backup in self.obj.list_backups():
-            if backup["name"] == kwargs["backup"]:
-                return FileResponse(
-                    open(backup["path"], "rb"),  # noqa: SIM115
-                    as_attachment=True,
-                    filename=backup["name"],
-                )
+            if backup["name"] != kwargs["backup"]:
+                continue
+            # Generate random name for download
+            name = os.path.join(
+                PROJECTBACKUP_PREFIX, f"{get_random_identifier(32)}.zip"
+            )
+            # Copy to static files
+            with open(backup["path"], "rb") as handle:
+                name = staticfiles_storage.save(name, handle)
+            # Schedule removal
+            if not settings.CELERY_TASK_ALWAYS_EAGER:
+                remove_project_backup_download.apply_async(args=(name,), countdown=3600)
+            # Redirect to static
+            return redirect(staticfiles_storage.url(name))
         raise Http404

@@ -5,7 +5,7 @@
 from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import UpdateBaseAddon
-from weblate.addons.events import EVENT_POST_COMMIT, EVENT_POST_UPDATE, EVENT_PRE_COMMIT
+from weblate.addons.events import AddonEvent
 from weblate.trans.exceptions import FileParseError
 
 
@@ -26,12 +26,15 @@ class CleanupAddon(BaseCleanupAddon):
         "no longer present in the base file."
     )
     icon = "eraser.svg"
-    events = (EVENT_PRE_COMMIT, EVENT_POST_UPDATE)
+    events = (AddonEvent.EVENT_PRE_COMMIT, AddonEvent.EVENT_POST_UPDATE)
 
     def update_translations(self, component, previous_head):
         for translation in self.iterate_translations(component):
             filenames = translation.store.cleanup_unused()
+            if filenames is None:
+                continue
             self.extra_files.extend(filenames)
+            # Do not update hash here as this is just before parsing updated files
 
     def pre_commit(self, translation, author):
         if translation.is_source and not translation.component.intermediate:
@@ -40,7 +43,9 @@ class CleanupAddon(BaseCleanupAddon):
             filenames = translation.store.cleanup_unused()
         except FileParseError:
             return
-        self.extra_files.extend(filenames)
+        if filenames is not None:
+            self.extra_files.extend(filenames)
+            translation.store_hash()
 
 
 class RemoveBlankAddon(BaseCleanupAddon):
@@ -49,13 +54,18 @@ class RemoveBlankAddon(BaseCleanupAddon):
     description = gettext_lazy(
         "Removes strings without a translation from translation files."
     )
-    events = (EVENT_POST_COMMIT, EVENT_POST_UPDATE)
+    events = (AddonEvent.EVENT_POST_COMMIT, AddonEvent.EVENT_POST_UPDATE)
     icon = "eraser.svg"
 
     def update_translations(self, component, previous_head):
         for translation in self.iterate_translations(component):
             filenames = translation.store.cleanup_blank()
+            if filenames is None:
+                continue
             self.extra_files.extend(filenames)
+            # Do not update hash in post_update, only in post_commit
+            if previous_head == "weblate:post-commit":
+                translation.store_hash()
 
     def post_commit(self, component):
-        self.post_update(component, None, skip_push=True)
+        self.post_update(component, "weblate:post-commit", skip_push=True, child=False)

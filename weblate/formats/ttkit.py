@@ -19,6 +19,7 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext, gettext_lazy
 from lxml import etree
 from lxml.etree import XMLSyntaxError
+from pyparsing import ParseException
 from translate.misc import quote
 from translate.misc.multistring import multistring
 from translate.misc.xml_helpers import setXMLspace
@@ -106,7 +107,7 @@ class TTKitUnit(TranslationUnit):
             # Avoid duplication in case template has same notes
             template_comment = self.template.getnotes()
             if template_comment != comment:
-                comment = template_comment + "\n" + comment
+                comment = f"{template_comment}\n{comment}"
 
         return comment
 
@@ -225,8 +226,8 @@ class TTKitFormat(TranslationFormat):
     set_context_bilingual = True
     # Use settarget/setsource to set language as well
     use_settarget = False
-    force_encoding = None
-    plural_preference = (
+    force_encoding: None | str = None
+    plural_preference: tuple[int, ...] | None = (
         Plural.SOURCE_CLDR,
         Plural.SOURCE_DEFAULT,
     )
@@ -493,6 +494,7 @@ class TTKitFormat(TranslationFormat):
 
     def delete_unit(self, ttkit_unit) -> str | None:
         self.store.removeunit(ttkit_unit)
+        return None
 
 
 class PropertiesUnit(KeyValueUnit):
@@ -533,7 +535,12 @@ class PoUnit(TTKitUnit):
     @cached_property
     def flags(self):
         """Return flags or typecomments from units."""
-        flags = Flags(*self.mainunit.typecomments)
+        try:
+            flags = Flags(*self.mainunit.typecomments)
+        except ParseException as error:
+            raise ValueError(
+                f"Could not parse flags: {self.mainunit.typecomments!r}: {error}"
+            ) from error
         flags.remove({"fuzzy"})
         return flags.format()
 
@@ -1054,6 +1061,7 @@ class INIUnit(TTKitUnit):
 class BasePoFormat(TTKitFormat, BilingualUpdateMixin):
     loader = pofile
     plural_preference = None
+    supports_plural: bool = True
 
     @classmethod
     def get_plural(cls, language, store=None):
@@ -1108,15 +1116,17 @@ class BasePoFormat(TTKitFormat, BilingualUpdateMixin):
     @classmethod
     def do_bilingual_update(cls, in_file: str, out_file: str, template: str, **kwargs):
         """Wrapper around msgmerge."""
-        args = [
+        cmd = [
+            "msgmerge",
+            *kwargs.pop("args", ["--previous"]),
             "--output-file",
             out_file,
             in_file,
             template,
         ]
-        args = kwargs["args"] + args if "args" in kwargs else ["--previous", *args]
+        if kwargs:
+            raise ValueError(f"Unsupported arguments: {kwargs!r}")
 
-        cmd = ["msgmerge", *args]
         try:
             result = subprocess.run(
                 cmd,
@@ -1164,7 +1174,7 @@ class PoFormat(BasePoFormat):
     name = gettext_lazy("gettext PO file")
     format_id = "po"
     monolingual = False
-    autoload = ("*.po", "*.pot")
+    autoload: tuple[str, ...] = ("*.po", "*.pot")
     unit_class = PoUnit
 
     @classmethod
@@ -1177,7 +1187,7 @@ class PoMonoFormat(BasePoFormat):
     name = gettext_lazy("gettext PO file (monolingual)")
     format_id = "po-mono"
     monolingual = True
-    autoload = ()
+    autoload: tuple[str, ...] = ()
     new_translation = (
         'msgid ""\n'
         'msgstr "X-Generator: Weblate\\n'
@@ -1201,16 +1211,21 @@ class TSFormat(TTKitFormat):
     name = gettext_lazy("Qt Linguist translation file")
     format_id = "ts"
     loader = tsfile
-    autoload = ("*.ts",)
+    autoload: tuple[str, ...] = ("*.ts",)
     unit_class = TSUnit
     set_context_bilingual = False
+    supports_plural: bool = True
+    plural_preference = (
+        Plural.SOURCE_QT,
+        Plural.SOURCE_DEFAULT,
+    )
 
 
 class XliffFormat(TTKitFormat):
     name = gettext_lazy("XLIFF 1.2 translation file")
     format_id = "plainxliff"
     loader = xlifffile
-    autoload = ()
+    autoload: tuple[str, ...] = ()
     unit_class = XliffUnit
     language_format = "bcp"
     use_settarget = True
@@ -1246,8 +1261,9 @@ class RichXliffFormat(XliffFormat):
 class PoXliffFormat(XliffFormat):
     name = gettext_lazy("XLIFF 1.2 with gettext extensions")
     format_id = "poxliff"
-    autoload = ("*.poxliff",)
+    autoload: tuple[str, ...] = ("*.poxliff",)
     loader = PoXliffFile
+    supports_plural: bool = True
 
 
 class PropertiesBaseFormat(TTKitFormat):
@@ -1278,7 +1294,7 @@ class StringsFormat(PropertiesBaseFormat):
     format_id = "strings"
     loader = ("properties", "stringsfile")
     new_translation: str | bytes | None = "\n".encode("utf-16")
-    autoload = ("*.strings",)
+    autoload: tuple[str, ...] = ("*.strings",)
     language_format = "bcp"
 
 
@@ -1314,7 +1330,7 @@ class PropertiesFormat(PropertiesBaseFormat):
     loader = ("properties", "javafile")
     language_format = "linux"
     new_translation = "\n"
-    autoload = ("*.properties",)
+    autoload: tuple[str, ...] = ("*.properties",)
     # Java properties need to be ISO 8859-1, but Translate Toolkit converts
     # them to UTF-8.
     force_encoding = "iso-8859-1"
@@ -1326,7 +1342,7 @@ class JoomlaFormat(PropertiesBaseFormat):
     loader = ("properties", "joomlafile")
     monolingual = True
     new_translation = "\n"
-    autoload = ("*.ini",)
+    autoload: tuple[str, ...] = ("*.ini",)
 
 
 class GWTFormat(StringsFormat):
@@ -1336,6 +1352,7 @@ class GWTFormat(StringsFormat):
     new_translation = "\n"
     check_flags = ("auto-java-messageformat",)
     language_format = "linux"
+    supports_plural: bool = True
 
 
 class GWTISOFormat(GWTFormat):
@@ -1349,7 +1366,7 @@ class PhpFormat(TTKitFormat):
     format_id = "php"
     loader = ("php", "phpfile")
     new_translation = "<?php\n"
-    autoload = ("*.php",)
+    autoload: tuple[str, ...] = ("*.php",)
     unit_class = PHPUnit
 
     @staticmethod
@@ -1367,6 +1384,7 @@ class LaravelPhpFormat(PhpFormat):
     name = gettext_lazy("Laravel PHP strings")
     format_id = "laravel"
     loader = ("php", "LaravelPHPFile")
+    supports_plural: bool = True
 
 
 class RESXFormat(TTKitFormat):
@@ -1376,8 +1394,9 @@ class RESXFormat(TTKitFormat):
     monolingual = True
     unit_class = RESXUnit
     new_translation = RESXFile.XMLskeleton
-    autoload = ("*.resx",)
+    autoload: tuple[str, ...] = ("*.resx",)
     language_format = "bcp"
+    supports_plural: bool = True
 
 
 class AndroidFormat(TTKitFormat):
@@ -1387,7 +1406,7 @@ class AndroidFormat(TTKitFormat):
     monolingual = True
     unit_class = MonolingualIDUnit
     new_translation = '<?xml version="1.0" encoding="utf-8"?>\n<resources></resources>'
-    autoload = ("strings*.xml", "values*.xml")
+    autoload: tuple[str, ...] = ("strings*.xml", "values*.xml")
     language_format = "android"
     check_flags = ("java-printf-format",)
     autoaddon = {"weblate.cleanup.blank": {}}
@@ -1397,9 +1416,16 @@ class AndroidFormat(TTKitFormat):
         Plural.SOURCE_DEFAULT,
     )
     strict_format_plurals: bool = True
+    supports_plural: bool = True
 
 
-class DictStoreMixin:
+class MOKOFormat(AndroidFormat):
+    name = gettext_lazy("Mobile Kotlin Resource")
+    format_id = "moko-resource"
+    loader = ("aresource", "MOKOResourceFile")
+
+
+class DictStoreFormat(TTKitFormat):
     @classmethod
     def validate_context(cls, context: str):
         id_class = cls.get_class().UnitClass.IdClass
@@ -1410,7 +1436,7 @@ class DictStoreMixin:
             raise ValidationError(gettext("Could not parse the key: %s") % error)
 
 
-class JSONFormat(DictStoreMixin, TTKitFormat):
+class JSONFormat(DictStoreFormat):
     name = gettext_lazy("JSON file")
     format_id = "json"
     loader = JsonFile
@@ -1434,7 +1460,7 @@ class JSONNestedFormat(JSONFormat):
     name = gettext_lazy("JSON nested structure file")
     format_id = "json-nested"
     loader = ("jsonl10n", "JsonNestedFile")
-    autoload = ()
+    autoload: tuple[str, ...] = ()
 
 
 class WebExtensionJSONFormat(JSONFormat):
@@ -1442,17 +1468,19 @@ class WebExtensionJSONFormat(JSONFormat):
     format_id = "webextension"
     loader = ("jsonl10n", "WebExtensionJsonFile")
     monolingual = True
-    autoload = ("messages*.json",)
+    autoload: tuple[str, ...] = ("messages*.json",)
     unit_class = PlaceholdersJSONUnit
+    supports_plural: bool = True
 
 
 class I18NextFormat(JSONFormat):
     name = gettext_lazy("i18next JSON file v3")
     format_id = "i18next"
     loader = ("jsonl10n", "I18NextFile")
-    autoload = ()
+    autoload: tuple[str, ...] = ()
     check_flags = ("i18next-interpolation",)
     language_format: str = "bcp"
+    supports_plural: bool = True
 
 
 class I18NextV4Format(I18NextFormat):
@@ -1465,21 +1493,23 @@ class GoI18JSONFormat(JSONFormat):
     name = gettext_lazy("go-i18n v1 JSON file")
     format_id = "go-i18n-json"
     loader = ("jsonl10n", "GoI18NJsonFile")
-    autoload = ()
+    autoload: tuple[str, ...] = ()
+    supports_plural: bool = True
 
 
 class GoI18V2JSONFormat(JSONFormat):
     name = gettext_lazy("go-i18n v2 JSON file")
     format_id = "go-i18n-json-v2"
     loader = ("jsonl10n", "GoI18NV2JsonFile")
-    autoload = ()
+    autoload: tuple[str, ...] = ()
+    supports_plural: bool = True
 
 
 class ARBFormat(JSONFormat):
     name = gettext_lazy("ARB file")
     format_id = "arb"
     loader = ("jsonl10n", "ARBJsonFile")
-    autoload = ("*.arb",)
+    autoload: tuple[str, ...] = ("*.arb",)
     unit_class = PlaceholdersJSONUnit
     check_flags = ("icu-message-format",)
 
@@ -1488,8 +1518,17 @@ class GoTextFormat(JSONFormat):
     name = gettext_lazy("gotext JSON file")
     format_id = "gotext"
     loader = ("jsonl10n", "GoTextJsonFile")
-    autoload = ()
+    autoload: tuple[str, ...] = ()
     unit_class = PlaceholdersJSONUnit
+    supports_plural: bool = True
+
+
+class FormatJSFormat(JSONFormat):
+    name = gettext_lazy("Format.JS JSON file")
+    format_id = "formatjs"
+    loader = ("jsonl10n", "FormatJSJsonFile")
+    autoload: tuple[str, ...] = ()
+    check_flags = ("icu-message-format",)
 
 
 class CSVFormat(TTKitFormat):
@@ -1583,7 +1622,7 @@ class CSVFormat(TTKitFormat):
 class CSVUtf8Format(CSVFormat):
     name = gettext_lazy("CSV file (UTF-8)")
     format_id = "csv-utf-8"
-    autoload = ()
+    autoload: tuple[str, ...] = ()
     force_encoding = "utf-8"
 
 
@@ -1609,17 +1648,17 @@ class CSVSimpleFormatISO(CSVSimpleFormat):
     name = gettext_lazy("Simple CSV file (ISO-8859-1)")
     format_id = "csv-simple-iso"
     force_encoding = "iso-8859-1"
-    autoload = ()
+    autoload: tuple[str, ...] = ()
 
 
 class CSVUtf8SimpleFormat(CSVSimpleFormat):
     name = gettext_lazy("Simple CSV file (UTF-8)")
     format_id = "csv-simple-utf-8"
     force_encoding = "utf-8"
-    autoload = ()
+    autoload: tuple[str, ...] = ()
 
 
-class YAMLFormat(DictStoreMixin, TTKitFormat):
+class YAMLFormat(DictStoreFormat):
     name = gettext_lazy("YAML file")
     format_id = "yaml"
     loader = ("yaml", "YAMLFile")
@@ -1642,14 +1681,15 @@ class RubyYAMLFormat(YAMLFormat):
     name = gettext_lazy("Ruby YAML file")
     format_id = "ruby-yaml"
     loader = ("yaml", "RubyYAMLFile")
-    autoload = ("*.ryml", "*.yml", "*.yaml")
+    autoload: tuple[str, ...] = ("*.ryml", "*.yml", "*.yaml")
+    supports_plural: bool = True
 
 
 class DTDFormat(TTKitFormat):
     name = gettext_lazy("DTD file")
     format_id = "dtd"
     loader = ("dtd", "dtdfile")
-    autoload = ("*.dtd",)
+    autoload: tuple[str, ...] = ("*.dtd",)
     unit_class = MonolingualSimpleUnit
     new_translation = "\n"
 
@@ -1693,7 +1733,7 @@ class SubRipFormat(TTKitFormat):
     format_id = "srt"
     loader = ("subtitles", "SubRipFile")
     unit_class = SubtitleUnit
-    autoload = ("*.srt",)
+    autoload: tuple[str, ...] = ("*.srt",)
     monolingual = True
     autoaddon = {"weblate.flags.same_edit": {}}
 
@@ -1707,21 +1747,21 @@ class MicroDVDFormat(SubRipFormat):
     name = gettext_lazy("MicroDVD subtitle file")
     format_id = "sub"
     loader = ("subtitles", "MicroDVDFile")
-    autoload = ("*.sub",)
+    autoload: tuple[str, ...] = ("*.sub",)
 
 
 class AdvSubStationAlphaFormat(SubRipFormat):
     name = gettext_lazy("Advanced SubStation Alpha subtitle file")
     format_id = "ass"
     loader = ("subtitles", "AdvSubStationAlphaFile")
-    autoload = ("*.ass",)
+    autoload: tuple[str, ...] = ("*.ass",)
 
 
 class SubStationAlphaFormat(SubRipFormat):
     name = gettext_lazy("SubStation Alpha subtitle file")
     format_id = "ssa"
     loader = ("subtitles", "SubStationAlphaFile")
-    autoload = ("*.ssa",)
+    autoload: tuple[str, ...] = ("*.ssa",)
 
 
 class FlatXMLFormat(TTKitFormat):
@@ -1841,11 +1881,12 @@ class XWikiPropertiesFormat(PropertiesBaseFormat):
     format_id = "xwiki-java-properties"
     loader = ("properties", "xwikifile")
     language_format = "bcp_legacy"
-    autoload = ("*.properties",)
+    autoload: tuple[str, ...] = ("*.properties",)
     new_translation = "\n"
     can_add_unit: bool = False
     can_delete_unit: bool = False
     set_context_bilingual: bool = True
+    supports_plural: bool = True
 
     # Ensure that untranslated units are saved too as missing properties and
     # comments are preserved as in the original source file.
@@ -1995,7 +2036,7 @@ class PropertiesMi18nFormat(PropertiesUtf8Format):
     monolingual = True
 
 
-class StringsdictFormat(DictStoreMixin, TTKitFormat):
+class StringsdictFormat(DictStoreFormat):
     name = gettext_lazy("Stringsdict file")
     format_id = "stringsdict"
     loader = ("stringsdict", "StringsDictFile")
@@ -2008,6 +2049,7 @@ class StringsdictFormat(DictStoreMixin, TTKitFormat):
     </dict>
 </plist>
 """
+    supports_plural: bool = True
 
     @staticmethod
     def mimetype():

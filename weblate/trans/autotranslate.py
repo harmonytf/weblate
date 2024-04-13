@@ -39,9 +39,9 @@ class AutoTranslate:
             self.target_state = STATE_APPROVED
         self.component_wide = component_wide
 
-    def get_units(self, filter_mode=True):
+    def get_units(self):
         units = self.translation.unit_set.all()
-        if self.mode == "suggest" and filter_mode:
+        if self.mode == "suggest":
             units = units.filter(suggestion__isnull=True)
         return units.filter_type(self.filter_type)
 
@@ -55,7 +55,7 @@ class AutoTranslate:
                 },
             )
 
-    def update(self, unit, state, target, user=None):
+    def update(self, unit, state: int, target: list[str], user=None):
         if isinstance(target, str):
             target = [target]
         if self.mode == "suggest" or any(
@@ -130,14 +130,13 @@ class AutoTranslate:
             ).values_list("source", "state", "target")
         }
 
-        # We need to skip mode (suggestions) filtering here as SELECT FOR UPDATE
-        # cannot be used with JOIN
-        units = (
-            self.get_units(False)
+        # Cannot use get_units() directly as SELECT FOR UPDATE cannot be used with JOIN
+        unit_ids = list(
+            self.get_units()
             .filter(source__in=translations.keys())
-            .prefetch_bulk()
-            .select_for_update()
+            .values_list("id", flat=True)
         )
+        units = Unit.objects.filter(pk__in=unit_ids).prefetch_bulk().select_for_update()
         self.progress_steps = len(units)
 
         for pos, unit in enumerate(units):
@@ -179,6 +178,11 @@ class AutoTranslate:
 
         for pos, translation_service in enumerate(engines):
             batch_size = translation_service.batch_size
+            self.translation.log_info(
+                "fetching translations from %s, %d per request",
+                translation_service.name,
+                batch_size,
+            )
 
             for batch_start in range(0, num_units, batch_size):
                 translation_service.batch_translate(
@@ -204,6 +208,7 @@ class AutoTranslate:
 
         with transaction.atomic():
             # Perform the translation
+            self.translation.log_info("updating %d strings", len(translations))
             for pos, unit in enumerate(
                 self.translation.unit_set.filter(id__in=translations.keys())
                 .prefetch_bulk()

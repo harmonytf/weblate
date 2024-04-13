@@ -2,12 +2,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
+from typing import Union, cast
+
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Fieldset, Layout, Submit
 from django import forms
 from django.conf import settings
 from django.contrib.auth import authenticate, password_validation
 from django.contrib.auth.forms import SetPasswordForm as DjangoSetPasswordForm
+from django.db import transaction
 from django.middleware.csrf import rotate_token
 from django.utils.functional import cached_property
 from django.utils.html import escape
@@ -30,7 +35,7 @@ from weblate.accounts.utils import (
     get_all_user_mails,
     invalidate_reset_codes,
 )
-from weblate.auth.models import Group, User, get_auth_keys
+from weblate.auth.models import Group, User
 from weblate.lang.models import Language
 from weblate.logger import LOGGER
 from weblate.trans.defines import FULLNAME_LENGTH
@@ -47,7 +52,7 @@ from weblate.utils.ratelimit import check_rate_limit, get_rate_setting, reset_ra
 from weblate.utils.validators import validate_fullname
 
 
-class UniqueEmailMixin:
+class UniqueEmailMixin(forms.Form):
     validate_unique_mail = False
 
     def clean_email(self):
@@ -107,8 +112,10 @@ class FullNameField(forms.CharField):
 
     def __init__(self, *args, **kwargs):
         kwargs["max_length"] = FULLNAME_LENGTH
-        kwargs["label"] = gettext("Full name")
-        kwargs["help_text"] = gettext("Name is also used in version control commits.")
+        kwargs["label"] = gettext_lazy("Full name")
+        kwargs["help_text"] = gettext_lazy(
+            "Name is also used in version control commits."
+        )
         kwargs["required"] = True
         super().__init__(*args, **kwargs)
 
@@ -173,8 +180,11 @@ class CommitForm(ProfileBaseForm):
     commit_email = forms.ChoiceField(
         label=gettext_lazy("Commit e-mail"),
         choices=[("", gettext_lazy("Use account e-mail address"))],
-        help_text=gettext_lazy("Choose commit e-mail from verified addresses."),
+        help_text=gettext_lazy(
+            "Used in version control commits. The address will stay in the repository forever once changes are commited by Weblate."
+        ),
         required=False,
+        widget=forms.RadioSelect,
     )
 
     class Meta:
@@ -197,10 +207,6 @@ class CommitForm(ProfileBaseForm):
         self.helper = FormHelper(self)
         self.helper.disable_csrf = True
         self.helper.form_tag = False
-        layout = ["commit_email"]
-        if "email" in get_auth_keys():
-            layout.append(Div(template="accounts/add-mail.html"))
-        self.helper.layout = Layout(*layout)
 
 
 class ProfileForm(ProfileBaseForm):
@@ -342,10 +348,13 @@ class UserForm(forms.ModelForm):
 
     username = UniqueUsernameField()
     email = forms.ChoiceField(
-        label=gettext_lazy("E-mail"),
-        help_text=gettext_lazy("Choose primary e-mail from verified addresses."),
+        label=gettext_lazy("Account e-mail"),
+        help_text=gettext_lazy(
+            "Used for e-mail notifications and as a commit e-mail if it is not configured below."
+        ),
         choices=(("", ""),),
         required=True,
+        widget=forms.RadioSelect,
     )
     full_name = FullNameField()
 
@@ -364,10 +373,6 @@ class UserForm(forms.ModelForm):
         self.helper = FormHelper(self)
         self.helper.disable_csrf = True
         self.helper.form_tag = False
-        layout = ["username", "email", "full_name"]
-        if "email" in get_auth_keys():
-            layout.insert(2, Div(template="accounts/add-mail.html"))
-        self.helper.layout = Layout(*layout)
 
     @classmethod
     def from_request(cls, request):
@@ -408,7 +413,7 @@ class ContactForm(forms.Form):
     )
 
 
-class EmailForm(forms.Form, UniqueEmailMixin):
+class EmailForm(UniqueEmailMixin):
     """Email change form."""
 
     required_css_class = "required"
@@ -463,9 +468,14 @@ class SetPasswordForm(DjangoSetPasswordForm):
     )
     new_password2 = PasswordField(label=gettext_lazy("New password confirmation"))
 
+    @transaction.atomic
     def save(self, request, delete_session=False):
         AuditLog.objects.create(
-            self.user, request, "password", password=self.user.password
+            self.user,
+            request,
+            "password",
+            password=self.user.password,
+            method="changed" if self.user.has_usable_password() else "configured",
         )
         # Change the password
         password = self.cleaned_data["new_password1"]
@@ -498,7 +508,7 @@ class CaptchaForm(forms.Form):
             self.generate_captcha()
             self.fresh = True
         else:
-            self.captcha = MathCaptcha.unserialize(request.session["captcha"])
+            self.mathcaptcha = MathCaptcha.unserialize(request.session["captcha"])
             self.set_label()
 
     def set_label(self):
@@ -509,19 +519,19 @@ class CaptchaForm(forms.Form):
                 "the %s is an arithmetic problem",
                 "What is %s?",
             )
-            % self.captcha.display
+            % self.mathcaptcha.display
         )
         if self.is_bound:
-            self["captcha"].label = self.fields["captcha"].label
+            self["captcha"].label = cast(str, self.fields["captcha"].label)
 
     def generate_captcha(self):
-        self.captcha = MathCaptcha()
-        self.request.session["captcha"] = self.captcha.serialize()
+        self.mathcaptcha = MathCaptcha()
+        self.request.session["captcha"] = self.mathcaptcha.serialize()
         self.set_label()
 
     def clean_captcha(self):
         """Validation for CAPTCHA."""
-        if self.fresh or not self.captcha.validate(self.cleaned_data["captcha"]):
+        if self.fresh or not self.mathcaptcha.validate(self.cleaned_data["captcha"]):
             self.generate_captcha()
             rotate_token(self.request)
             raise forms.ValidationError(
@@ -534,7 +544,7 @@ class CaptchaForm(forms.Form):
         LOGGER.info(
             "Correct CAPTCHA for %s (%s = %s)",
             mail,
-            self.captcha.question,
+            self.mathcaptcha.question,
             self.cleaned_data["captcha"],
         )
 
@@ -596,7 +606,7 @@ class LoginForm(forms.Form):
         # The 'request' parameter is set for custom auth use by subclasses.
         # The form data comes in via the standard 'data' kwarg.
         self.request = request
-        self.user_cache = None
+        self.user_cache: User | None = None
         super().__init__(*args, **kwargs)
 
     def clean(self):
@@ -620,8 +630,9 @@ class LoginForm(forms.Form):
                     )
                     % lockout_period
                 )
-            self.user_cache = authenticate(
-                self.request, username=username, password=password
+            self.user_cache = cast(
+                Union[User, None],
+                authenticate(self.request, username=username, password=password),
             )
             if self.user_cache is None:
                 for user in try_get_user(username, True):
@@ -673,10 +684,13 @@ class NotificationForm(forms.Form):
         widget=forms.HiddenInput, queryset=Component.objects.none(), required=False
     )
 
-    def __init__(self, user, show_default, subscriptions, is_active, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self, *, user, show_default, removable, subscriptions, is_active, **kwargs
+    ):
+        super().__init__(**kwargs)
         self.user = user
         self.is_active = is_active
+        self.removable = removable
         self.show_default = show_default
         self.fields["project"].queryset = user.allowed_projects
         self.fields["component"].queryset = Component.objects.filter_access(user)
@@ -686,7 +700,7 @@ class NotificationForm(forms.Form):
             self.fields[field] = forms.ChoiceField(
                 label=notification_cls.verbose,
                 choices=self.get_choices(notification_cls, show_default),
-                required=True,
+                required=False,
                 initial=self.get_initial(notification_cls, subscriptions, show_default),
             )
             if notification_cls.filter_languages:
@@ -738,17 +752,23 @@ class NotificationForm(forms.Form):
             return self.cleaned_data
         return self.initial
 
+    def get_form_param(self, name: str, default):
+        result = self.form_params.get(name)
+        if result is not None:
+            return result
+        return self.initial.get(name, default)
+
     @cached_property
     def form_scope(self):
-        return self.form_params.get("scope", SCOPE_WATCHED)
+        return int(self.get_form_param("scope", SCOPE_WATCHED))
 
     @cached_property
     def form_project(self):
-        return self.form_params.get("project", None)
+        return self.get_form_param("project", None)
 
     @cached_property
     def form_component(self):
-        return self.form_params.get("component", None)
+        return self.get_form_param("component", None)
 
     def get_name(self):
         scope = self.form_scope
@@ -824,19 +844,19 @@ class NotificationForm(forms.Form):
         handled = set()
         for field, notification_cls in self.notification_fields():
             frequency = self.cleaned_data[field]
-            # We do not store defaults or disabled default subscriptions
-            if frequency == "-1" or (frequency == "0" and not self.show_default):
+            # We do not store removed field, defaults or disabled default subscriptions
+            if (
+                frequency == ""
+                or frequency == "-1"
+                or (frequency == "0" and not self.show_default)
+            ):
                 continue
             # Create/Get from database
-            subscription, created = self.user.subscription_set.get_or_create(
+            subscription, _created = self.user.subscription_set.update_or_create(
                 notification=notification_cls.get_name(),
                 defaults={"frequency": frequency},
                 **lookup,
             )
-            # Update old subscription
-            if not created and subscription.frequency != frequency:
-                subscription.frequency = frequency
-                subscription.save(update_fields=["frequency"])
             handled.add(subscription.pk)
         # Delete stale subscriptions
         self.user.subscription_set.filter(**lookup).exclude(pk__in=handled).delete()

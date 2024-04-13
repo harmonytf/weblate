@@ -34,6 +34,7 @@
 
 {% perm 'unit.edit' unit as user_can_translate %}
 {% perm 'unit.delete' unit as user_can_delete %}
+{% perm 'unit.review' unit as user_can_review %}
 {% perm 'suggestion.add' unit as user_can_suggest %}
 {% perm 'suggestion.accept' unit as user_can_accept_suggestion %}
 {% perm 'suggestion.vote' unit.translation as user_can_vote_suggestion %}
@@ -143,13 +144,16 @@
         {% if not user.profile.hide_source_secondary or not secondary %}
           <!-- source -->
           <div class="form-group source-language-group">
-            {% if unit.context %}
+            <div>
+              {% if unit.context %}
                 <div class="pull-right flip">
                 <label>{{ unit.translation.component.context_label }}</label>
                 {% format_source_string unit.context unit simple=True wrap=True search_match=search_query whitespace=False %}
                 </div>
-            {% endif %}
-            <a class="language" href="{{ unit.source_unit.get_absolute_url }}">{{ unit.translation.component.source_language }}</a>
+              {% endif %}
+              <a class="language" href="{{ unit.source_unit.get_absolute_url }}">{{ unit.translation.component.source_language }}</a>
+              <div class="clearfix"></div>
+            </div>
             {% if unit.translation.component.project.source_review %}
             <a title="{% trans "Report issue with the source string" %}" href="#" class="btn btn-link btn-xs bug-comment">{% icon "bug.svg" %}</a>
             {% endif %}
@@ -165,10 +169,8 @@
   <div class="panel-footer">
     {% if locked %}
         <p class="text-danger">{% trans "This translation is currently locked." %}</p>
-    {% elif not user_can_translate and not user_can_edit_flags %}
+    {% elif not user_can_translate %}
         <p class="text-danger">{{ user_can_translate.reason }}</p>
-    {% elif not user_can_translate and user_can_edit_flags and not unit.translation.component.is_glossary %}
-        <p class="text-danger">{% trans "Insufficient privileges for saving translations." %}</p>
     {% endif %}
     <div>
       {% with flag_actions=unit.get_flag_actions %}
@@ -204,11 +206,17 @@
     {% elif not user_can_translate and user_can_edit_flags and not unit.translation.component.is_glossary %}
         disabled="disabled"
     {% endif %}
-    > {% trans "Save and continue" %}</button>
+    >{% trans "Save and continue" %}</button>
 
-    {% if not locked and user_can_translate %}
-      <button class="btn btn-warning btn-spaced" type="submit" name="save-stay" tabindex="151">{% trans "Save and stay" %}</button>
+    <button class="btn btn-warning btn-spaced" type="submit" name="save-stay" tabindex="151"
+    {% if locked %}
+        disabled="disabled"
+    {% elif not user_can_translate and not user_can_edit_flags %}
+        disabled="disabled"
+    {% elif not user_can_translate and user_can_edit_flags and not unit.translation.component.is_glossary %}
+        disabled="disabled"
     {% endif %}
+    >{% trans "Save and stay" %} {{ user_can_edit_flags.reason }}</button>
 
     {% if unit.translation.enable_suggestions %}
     <button class="btn btn-warning btn-spaced" type="submit" name="suggest" tabindex="152"

@@ -38,10 +38,10 @@ CONTROLCHARS = {
 CONTROLCHARS_TRANS = str.maketrans({char: None for char in CONTROLCHARS})
 
 
-class BytesIOMode(BytesIO):
+class NamedBytesIO(BytesIO):
     """StringIO with mode attribute to make ttkit happy."""
 
     def __init__(self, filename, data):
         super().__init__(data)
-        self.mode = "r"
+        self.mode = "r"  # type: ignore[misc]
         self.name = filename

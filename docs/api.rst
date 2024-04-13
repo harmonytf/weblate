@@ -43,7 +43,7 @@ token, which you can get in your profile. Use it in the ``Authorization`` header
     :>json string next: next page URL for object lists
     :>json string previous: previous page URL for object lists
     :>json array results: results for object lists
-    :>json string url: URL to access this resource using API
+    :>json string url: URL to access this resource using the API
     :>json string web_url: URL to access this resource using web browser
     :status 200: when request was correctly handled
     :status 201: when a new object was created successfully
@@ -1145,6 +1145,29 @@ Projects
     :param project: Project URL slug
     :type project: string
 
+.. http:get:: /api/projects/(string:project)/labels/
+
+   .. versionadded:: 5.3
+
+    Returns labels for a project.
+
+    :param project: Project URL slug
+    :type project: string
+    :>json int id: ID of the label
+    :>json string name: name of the label
+    :>json string color: color of the label
+
+.. http:post:: /api/projects/(string:project)/labels/
+
+   .. versionadded:: 5.3
+
+    Creates a label for a project.
+
+    :param project: Project URL slug
+    :type project: string
+    :<json string name: name of the label
+    :<json string color: color of the label
+
 Components
 ++++++++++
 
@@ -1172,10 +1195,12 @@ Components
     :>json string name: :ref:`component-name`
     :>json string slug: :ref:`component-slug`
     :>json string vcs: :ref:`component-vcs`
-    :>json string repo: :ref:`component-repo`
+    :>json string linked_component: component whose repository is linked via :ref:`internal-urls`
+    :>json string repo: :ref:`component-repo`, this is the actual repository URL even when :ref:`internal-urls` are used, use ``linked_component`` to detect this situation
     :>json string git_export: :ref:`component-git_export`
-    :>json string branch: :ref:`component-branch`
-    :>json string push_branch: :ref:`component-push_branch`
+    :>json string branch: :ref:`component-branch`, this is the actual repository branch even when :ref:`internal-urls` are used
+    :>json string push: :ref:`component-push`, this is the actual repository URL even when :ref:`internal-urls` are used
+    :>json string push_branch: :ref:`component-push_branch`, this is the actual repository branch even when :ref:`internal-urls` are used
     :>json string filemask: :ref:`component-filemask`
     :>json string template: :ref:`component-template`
     :>json string edit_template: :ref:`component-edit_template`
@@ -1187,7 +1212,6 @@ Components
     :>json string new_lang: :ref:`component-new_lang`
     :>json string language_code_style: :ref:`component-language_code_style`
     :>json object source_language: source language object; see :http:get:`/api/languages/(string:language)/`
-    :>json string push: :ref:`component-push`
     :>json string check_flags: :ref:`component-check_flags`
     :>json string priority: :ref:`component-priority`
     :>json string enforced_checks: :ref:`component-enforced_checks`
@@ -1911,6 +1935,9 @@ Translations
         parameter differs and without such parameter you get translation file
         as stored in VCS.
 
+    :resheader Last-Modified: Timestamp of last change to this file.
+    :reqheader If-Modified-Since: Skips response if the file has not been modified since that time.
+
     :query format: File format to use; if not specified no format conversion happens; see :ref:`download` for supported formats
     :query string q: Filter downloaded strings, see :ref:`search`, only applicable when conversion is in place (``format`` is specified).
 
@@ -2415,7 +2442,7 @@ Tasks
 
 .. http:get:: /api/tasks/(str:uuid)/
 
-    Returns information about a task
+    Returns information about a task.
 
     :param uuid: Task UUID
     :type uuid: string
@@ -2447,13 +2474,25 @@ Statistics
    :>json int translated_chars: number of translated characters
    :>json float translated_chars_percent: percentage of translated characters
    :>json int fuzzy: number of fuzzy (marked for edit) strings
+   :>json int fuzzy_words: number of fuzzy (marked for edit) words
+   :>json int fuzzy_chars: number of fuzzy (marked for edit) characters
    :>json float fuzzy_percent: percentage of fuzzy (marked for edit) strings
+   :>json float fuzzy_words_percent: percentage of fuzzy (marked for edit) words
+   :>json float fuzzy_chars_percent: percentage of fuzzy (marked for edit) characters
    :>json int failing: number of failing checks
    :>json float failing_percent: percentage of failing checks
-   :>json int approved: number of approved checks
+   :>json int approved: number of approved strings
+   :>json int approved_words: number of approved words
+   :>json int approved_chars: number of approved characters
    :>json float approved_percent: percentage of approved strings
+   :>json float approved_words_percent: percentage of approved words
+   :>json float approved_chars_percent: percentage of approved characters
    :>json int readonly: number of read-only strings
+   :>json int readonly_words: number of read-only words
+   :>json int readonly: number of read-only characters
    :>json float readonly_percent: percentage of read-only strings
+   :>json float readonly_words_percent: percentage of read-only words
+   :>json float readonly_char_percent: percentage of read-only characters
    :>json int suggestions: number of strings with suggestions
    :>json int comments: number of strings with comments
    :>json string name: object name
@@ -2659,7 +2698,7 @@ update individual repositories; see
 
     .. note::
 
-       Please make sure that :guilabel:`Resource details to send` is set to
+       Please ensure that :guilabel:`Resource details to send` is set to
        *All*, otherwise Weblate will not be able to match your Azure repository.
 
     .. seealso::

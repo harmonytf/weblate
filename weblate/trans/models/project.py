@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import os.path
 from datetime import datetime
+from operator import itemgetter
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,7 +19,7 @@ from django.db.models.functions import Replace
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.timezone import make_aware
-from django.utils.translation import gettext_lazy
+from django.utils.translation import gettext_lazy, gettext_noop
 
 from weblate.configuration.models import Setting
 from weblate.formats.models import FILE_FORMATS
@@ -34,6 +36,9 @@ from weblate.utils.validators import (
     validate_project_web,
     validate_slug,
 )
+
+if TYPE_CHECKING:
+    from weblate.trans.backups import BackupListDict
 
 
 class ProjectLanguageFactory(dict):
@@ -53,6 +58,28 @@ class ProjectQuerySet(models.QuerySet):
 
     def search(self, query: str):
         return self.filter(Q(name__icontains=query) | Q(slug__icontains=query))
+
+    def prefetch_languages(self):
+        # Bitmap for languages
+        language_map = set(
+            self.values_list("id", "component__translation__language_id").distinct()
+        )
+        # All used languages
+        languages = (
+            Language.objects.filter(translation__component__project__in=self)
+            .order()
+            .distinct()
+        )
+
+        # Prefetch languages attribute
+        for project in self:
+            project.languages = [
+                language
+                for language in languages
+                if (project.id, language.id) in language_map
+            ]
+
+        return self
 
 
 def prefetch_project_flags(projects):
@@ -261,11 +288,10 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
             old_value = getattr(old, attribute)
             current_value = getattr(self, attribute)
             if old_value != current_value:
-                Change.objects.create(
+                self.change_set.create(
                     action=action,
                     old=old_value,
                     target=current_value,
-                    project=self,
                     user=self.acting_user,
                 )
 
@@ -314,7 +340,10 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
 
     @cached_property
     def locked(self):
-        return self.component_set.filter(locked=False).count() == 0
+        return (
+            self.component_set.filter(locked=False).count() == 0
+            and self.component_set.exists()
+        )
 
     @cached_property
     def languages(self):
@@ -345,7 +374,9 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
             for component in self.all_repo_components
         )
         if use_all:
-            return all(generator)
+            # Call methods on all components as this performs an operation
+            return all(list(generator))
+        # This is status checking, call only needed methods
         return any(generator)
 
     def commit_pending(self, reason, user):
@@ -439,8 +470,8 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
             self.save()
         if not user.is_superuser:
             self.add_user(user, "Administration")
-        Change.objects.create(
-            action=Change.ACTION_CREATE_PROJECT, project=self, user=user, author=user
+        self.change_set.create(
+            action=Change.ACTION_CREATE_PROJECT, user=user, author=user
         )
 
     @cached_property
@@ -488,6 +519,9 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     @property
     def source_language_cache_key(self):
         return f"project-source-language-ids-{self.pk}"
+
+    def get_glossary_tsv_cache_key(self, source_language, language):
+        return f"project-glossary-tsv-{self.pk}-{source_language.code}-{language.code}"
 
     def invalidate_source_language_cache(self):
         cache.delete(self.source_language_cache_key)
@@ -550,6 +584,14 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     def invalidate_glossary_cache(self):
         if "glossary_automaton" in self.__dict__:
             del self.__dict__["glossary_automaton"]
+        tsv_cache_keys = [
+            self.get_glossary_tsv_cache_key(source_language, language)
+            for source_language in Language.objects.filter(
+                component__project=self
+            ).distinct()
+            for language in self.languages
+        ]
+        cache.delete_many(tsv_cache_keys)
 
     @cached_property
     def glossary_automaton(self):
@@ -565,10 +607,16 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
                     del settings[item]
             else:
                 settings[item] = value
+                # Include project field so that different projects do not share
+                # cache keys via MachineTranslation.get_cache_key when service
+                # is installed at project level.
+                settings[item]["_project"] = self
         return settings
 
-    def list_backups(self):
-        backup_dir = data_dir("projectbackups", f"{self.pk}")
+    def list_backups(self) -> list[BackupListDict]:
+        from weblate.trans.backups import PROJECTBACKUP_PREFIX
+
+        backup_dir = data_dir(PROJECTBACKUP_PREFIX, f"{self.pk}")
         result = []
         if not os.path.exists(backup_dir):
             return result
@@ -588,7 +636,7 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
                         "size": entry.stat().st_size // 1024,
                     }
                 )
-        return sorted(result, key=lambda item: item["timestamp"], reverse=True)
+        return sorted(result, key=itemgetter("timestamp"), reverse=True)
 
     @cached_property
     def enable_review(self):
@@ -601,3 +649,10 @@ class Project(models.Model, PathMixin, CacheKeyMixin):
     @property
     def can_add_category(self):
         return True
+
+    @cached_property
+    def automatically_translated_label(self):
+        return self.label_set.get_or_create(
+            name=gettext_noop("Automatically translated"),
+            defaults={"color": "yellow"},
+        )[0]

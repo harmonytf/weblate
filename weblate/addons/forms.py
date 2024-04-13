@@ -15,25 +15,24 @@ from lxml.cssselect import CSSSelector
 from weblate.formats.models import FILE_FORMATS
 from weblate.trans.discovery import ComponentDiscovery
 from weblate.trans.forms import AutoForm, BulkEditForm
-from weblate.utils.forms import ContextDiv
+from weblate.trans.models import Translation
+from weblate.utils.forms import CachedModelChoiceField, ContextDiv
 from weblate.utils.render import validate_render, validate_render_component
 from weblate.utils.validators import validate_filename, validate_re
 
 
-class AddonFormMixin:
+class BaseAddonForm(forms.Form):
+    def __init__(self, user, addon, instance=None, *args, **kwargs):
+        self._addon = addon
+        self.user = user
+        forms.Form.__init__(self, *args, **kwargs)
+
     def serialize_form(self):
         return self.cleaned_data
 
     def save(self):
         self._addon.configure(self.serialize_form())
         return self._addon.instance
-
-
-class BaseAddonForm(forms.Form, AddonFormMixin):
-    def __init__(self, user, addon, instance=None, *args, **kwargs):
-        self._addon = addon
-        self.user = user
-        super().__init__(*args, **kwargs)
 
 
 class GenerateMoForm(BaseAddonForm):
@@ -45,11 +44,19 @@ class GenerateMoForm(BaseAddonForm):
             "If not specified, the location of the PO file will be used."
         ),
     )
+    fuzzy = forms.BooleanField(
+        label=gettext_lazy("Include strings needing editing"),
+        required=False,
+        help_text=gettext_lazy(
+            "Strings needing editing (fuzzy) are typically not ready for use as translations."
+        ),
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper(self)
         self.helper.layout = Layout(
+            Field("fuzzy"),
             Field("path"),
             ContextDiv(
                 template="addons/generatemo_help.html", context={"user": self.user}
@@ -348,7 +355,7 @@ class DiscoveryForm(BaseAddonForm):
             if self.cleaned_data.get("preview"):
                 self.fields["confirm"].widget = forms.CheckboxInput()
                 self.helper.layout.insert(0, Field("confirm"))
-                created, matched, deleted = self.discovery.perform(
+                created, matched, deleted, skipped = self.discovery.perform(
                     preview=True, remove=self.cleaned_data["remove"]
                 )
                 self.helper.layout.insert(
@@ -359,6 +366,7 @@ class DiscoveryForm(BaseAddonForm):
                             "matches_created": created,
                             "matches_matched": matched,
                             "matches_deleted": deleted,
+                            "matches_skipped": skipped,
                             "user": self.user,
                         },
                     ),
@@ -374,7 +382,7 @@ class DiscoveryForm(BaseAddonForm):
     def clean(self):
         if file_format := self.cleaned_data.get("file_format"):
             is_monolingual = FILE_FORMATS[file_format].monolingual
-            if is_monolingual and not self.cleaned_data["base_file_template"]:
+            if is_monolingual and not self.cleaned_data.get("base_file_template"):
                 raise forms.ValidationError(
                     {
                         "base_file_template": gettext(
@@ -445,19 +453,19 @@ class DiscoveryForm(BaseAddonForm):
         return self.template_clean("intermediate_template")
 
 
-class AutoAddonForm(AutoForm, AddonFormMixin):
+class AutoAddonForm(BaseAddonForm, AutoForm):
     def __init__(self, user, addon, instance=None, **kwargs):
-        self.user = user
-        self._addon = addon
-        super().__init__(obj=addon.instance.component, **kwargs)
+        BaseAddonForm.__init__(self, user, addon)
+        AutoForm.__init__(self, obj=addon.instance.component, **kwargs)
 
 
-class BulkEditAddonForm(BulkEditForm, AddonFormMixin):
+class BulkEditAddonForm(BaseAddonForm, BulkEditForm):
     def __init__(self, user, addon, instance=None, **kwargs):
-        self.user = user
-        self._addon = addon
+        BaseAddonForm.__init__(self, user, addon)
         component = addon.instance.component
-        super().__init__(obj=component, project=component.project, user=None, **kwargs)
+        BulkEditForm.__init__(
+            self, obj=component, project=component.project, user=None, **kwargs
+        )
 
     def serialize_form(self):
         result = dict(self.cleaned_data)
@@ -490,7 +498,8 @@ class CDNJSForm(BaseAddonForm):
         initial="",
         help_text=gettext_lazy("Name of cookie which stores language preference."),
     )
-    files = forms.CharField(
+    # This shadows files from the Form class
+    files = forms.CharField(  # type: ignore[assignment]
         widget=forms.Textarea(),
         label=gettext_lazy("Extract strings from HTML files"),
         required=False,
@@ -528,14 +537,25 @@ class CDNJSForm(BaseAddonForm):
         return self.cleaned_data["css_selector"]
 
 
+class TranslationLanguageChoiceField(CachedModelChoiceField):
+    def label_from_instance(self, obj):
+        return str(obj.language)
+
+
 class PseudolocaleAddonForm(BaseAddonForm):
-    source = forms.ChoiceField(label=gettext_lazy("Source strings"), required=True)
-    target = forms.ChoiceField(
+    source = TranslationLanguageChoiceField(
+        label=gettext_lazy("Source strings"),
+        required=True,
+        queryset=Translation.objects.none(),
+    )
+    target = TranslationLanguageChoiceField(
         label=gettext_lazy("Target translation"),
         required=True,
         help_text=gettext_lazy("All strings in this translation will be overwritten"),
+        queryset=Translation.objects.none(),
     )
-    prefix = forms.CharField(
+    # This shadows prefix from the Form class
+    prefix = forms.CharField(  # type: ignore[assignment]
         label=gettext_lazy("Fixed string prefix"),
         required=False,
         initial="",
@@ -557,6 +577,7 @@ class PseudolocaleAddonForm(BaseAddonForm):
     )
     var_multiplier = forms.FloatField(
         label=gettext_lazy("Variable part multiplier"),
+        required=False,
         initial=0.1,
         help_text=gettext_lazy(
             "How many times to repeat the variable part depending on "
@@ -570,12 +591,9 @@ class PseudolocaleAddonForm(BaseAddonForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        choices = [
-            (translation.pk, str(translation.language))
-            for translation in self._addon.instance.component.translation_set.all()
-        ]
-        self.fields["source"].choices = choices
-        self.fields["target"].choices = choices
+        queryset = self._addon.instance.component.translation_set.all()
+        self.fields["source"].queryset = queryset
+        self.fields["target"].queryset = queryset
         self.helper = FormHelper(self)
         self.helper.layout = Layout(
             Field("source"),
@@ -592,7 +610,16 @@ class PseudolocaleAddonForm(BaseAddonForm):
         )
 
     def clean(self):
+        if "source" not in self.cleaned_data or "target" not in self.cleaned_data:
+            return
         if self.cleaned_data["source"] == self.cleaned_data["target"]:
             raise forms.ValidationError(
                 gettext("The source and target have to be different languages.")
             )
+
+    def serialize_form(self):
+        result = dict(self.cleaned_data)
+        # Need to convert to JSON serializable objects
+        result["source"] = result["source"].pk
+        result["target"] = result["target"].pk
+        return result

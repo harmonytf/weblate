@@ -375,6 +375,15 @@ class ProfileTest(FixtureTestCase):
                 "zen_mode": Profile.ZEN_VERTICAL,
                 "nearby_strings": 10,
                 "theme": "auto",
+                "notifications__0-scope": 0,
+                "notifications__0-project": "",
+                "notifications__0-component": "",
+                "notifications__1-scope": 10,
+                "notifications__1-project": "",
+                "notifications__1-component": "",
+                "notifications__2-scope": 20,
+                "notifications__2-project": "",
+                "notifications__2-component": "",
             },
         )
         self.assertRedirects(response, reverse("profile"))
@@ -395,6 +404,15 @@ class ProfileTest(FixtureTestCase):
                 "zen_mode": Profile.ZEN_VERTICAL,
                 "nearby_strings": 10,
                 "theme": "auto",
+                "notifications__0-scope": 0,
+                "notifications__0-project": "",
+                "notifications__0-component": "",
+                "notifications__1-scope": 10,
+                "notifications__1-project": "",
+                "notifications__1-component": "",
+                "notifications__2-scope": 20,
+                "notifications__2-project": "",
+                "notifications__2-component": "",
             },
         )
         self.assertContains(response, "Select a valid choice.")
@@ -535,7 +553,7 @@ class ProfileTest(FixtureTestCase):
         self.assertContains(response, "notification change link is no longer valid")
 
         response = self.client.get(
-            reverse("unsubscribe"), {"i": TimestampSigner().sign(-1)}, follow=True
+            reverse("unsubscribe"), {"i": TimestampSigner().sign("-1")}, follow=True
         )
         self.assertRedirects(response, reverse("profile") + "#notifications")
         self.assertContains(response, "notification change link is no longer valid")
@@ -545,7 +563,7 @@ class ProfileTest(FixtureTestCase):
         )
         response = self.client.get(
             reverse("unsubscribe"),
-            {"i": TimestampSigner().sign(subscription.pk)},
+            {"i": TimestampSigner().sign(f"{subscription.pk}")},
             follow=True,
         )
         self.assertRedirects(response, reverse("profile") + "#notifications")

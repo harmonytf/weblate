@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# mypy: disable-error-code="var-annotated"
+
 from appconf import AppConf
 
 
@@ -52,6 +54,7 @@ class WeblateConf(AppConf):
         "weblate.trans.autofixes.chars.RemoveZeroSpace",
         "weblate.trans.autofixes.chars.RemoveControlChars",
         "weblate.trans.autofixes.chars.DevanagariDanda",
+        "weblate.trans.autofixes.chars.PunctuationSpacing",
         "weblate.trans.autofixes.html.BleachHTML",
     )
 

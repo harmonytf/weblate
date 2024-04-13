@@ -19,8 +19,9 @@ from ruamel.yaml import YAML
 
 import weblate.utils.version
 from weblate.formats.models import FILE_FORMATS
+from weblate.logger import LOGGER
 from weblate.machinery.models import MACHINERY
-from weblate.trans.models import Translation
+from weblate.trans.models import Component, Translation
 from weblate.trans.util import get_clean_env
 from weblate.utils.backup import backup_lock
 from weblate.utils.celery import app
@@ -45,8 +46,8 @@ def ping():
 
 @app.task(trail=False)
 def heartbeat():
-    cache.set("celery_loaded", time.monotonic())
-    cache.set("celery_heartbeat", time.monotonic())
+    cache.set("celery_loaded", time.time())
+    cache.set("celery_heartbeat", time.time())
     cache.set(
         "celery_encoding", [sys.getfilesystemencoding(), sys.getdefaultencoding()]
     )
@@ -64,7 +65,8 @@ def settings_backup():
         # Backup original settings
         if settings.SETTINGS_MODULE:
             settings_mod = import_module(settings.SETTINGS_MODULE)
-            copyfile(settings_mod.__file__, data_dir("backups", "settings.py"))
+            if settings_mod.__file__ is not None:
+                copyfile(settings_mod.__file__, data_dir("backups", "settings.py"))
 
         # Backup environment (to make restoring Docker easier)
         with open(data_dir("backups", "environment.yml"), "w") as handle:
@@ -76,6 +78,12 @@ def settings_backup():
 def update_translation_stats_parents(pk: int):
     translation = Translation.objects.get(pk=pk)
     translation.stats.update_parents()
+
+
+@app.task(trail=False)
+def update_language_stats_parents(pk: int):
+    component = Component.objects.get(pk=pk)
+    component.stats.update_language_stats_parents()
 
 
 @app.task(trail=False, autoretry_for=(WeblateLockTimeoutError,))
@@ -91,7 +99,15 @@ def database_backup():
         out_text = data_dir("backups", "database.sql")
 
         if using_postgresql():
-            cmd = ["pg_dump", "--dbname", database["NAME"]]
+            cmd = [
+                "pg_dump",
+                # Superuser only, crashes on Alibaba Cloud Database PolarDB
+                "--no-subscriptions",
+                "--clean",
+                "--if-exists",
+                "--dbname",
+                database["NAME"],
+            ]
 
             if database["HOST"]:
                 cmd.extend(["--host", database["HOST"]])
@@ -129,7 +145,7 @@ def database_backup():
 
         try:
             subprocess.run(
-                cmd,
+                cmd,  # type: ignore[arg-type]
                 env=env,
                 capture_output=True,
                 stdin=subprocess.DEVNULL,
@@ -143,6 +159,7 @@ def database_backup():
                 stdout=error.stdout,
                 stderr=error.stderr,
             )
+            LOGGER.error("failed database backup: %s", error.stderr)
             report_error()
             raise
 
@@ -154,7 +171,7 @@ def database_backup():
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender, **kwargs):
-    cache.set("celery_loaded", time.monotonic())
+    cache.set("celery_loaded", time.time())
     sender.add_periodic_task(
         crontab(hour=1, minute=0), settings_backup.s(), name="settings-backup"
     )

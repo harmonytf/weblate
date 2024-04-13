@@ -14,9 +14,10 @@ from zipfile import BadZipFile
 from django.utils.translation import gettext_lazy
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE, TYPE_STRING
+from openpyxl.workbook.child import INVALID_TITLE_REGEX
 from translate.storage.csvl10n import csv
 
-from weblate.formats.helpers import BytesIOMode
+from weblate.formats.helpers import NamedBytesIO
 from weblate.formats.ttkit import CSVFormat
 
 
@@ -32,11 +33,20 @@ class XlsxFormat(CSVFormat):
         cell.data_type = TYPE_STRING
         return cell
 
+    def get_title(self, fallback: str = "Weblate"):
+        title = self.store.targetlanguage
+        if title is None:
+            return fallback
+        # Remove possible invalid characters
+        title = INVALID_TITLE_REGEX.sub(title, "").strip()
+        if not title:
+            return fallback
+        return title
+
     def save_content(self, handle):
         workbook = Workbook()
         worksheet = workbook.active
-
-        worksheet.title = self.store.targetlanguage or "Weblate"
+        worksheet.title = self.get_title()
 
         # write headers
         for column, field in enumerate(self.store.fieldnames):
@@ -76,8 +86,17 @@ class XlsxFormat(CSVFormat):
 
         writer = csv.writer(output, dialect="unix")
 
+        # value can be None or blank stringfor cells having formatting only,
+        # we need to ignore such columns as that would be treated like "" fields
+        # later in the translate-toolkit
+        fields = [cell.value for cell in next(worksheet.rows) if cell.value]
         for row in worksheet.rows:
-            writer.writerow([cell.value for cell in row])
+            values = [cell.value for cell in row]
+            values = values[: len(fields)]
+            # Skip formatting only cells
+            if not any(values):
+                continue
+            writer.writerow(values)
 
         if isinstance(storefile, str):
             name = os.path.basename(storefile) + ".csv"
@@ -88,7 +107,7 @@ class XlsxFormat(CSVFormat):
         content = output.getvalue().encode()
 
         # Load the file as CSV
-        return super().parse_store(BytesIOMode(name, content))
+        return super().parse_store(NamedBytesIO(name, content))
 
     @staticmethod
     def mimetype():

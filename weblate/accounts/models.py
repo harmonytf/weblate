@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import F, Q
+from django.db.models.functions import Upper
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -179,6 +180,9 @@ ACCOUNT_ACTIVITY_METHOD = {
     },
     "project": {
         "invited": gettext_lazy("Invited to {project} by {username}."),
+    },
+    "configured": {
+        "password": gettext_lazy("Password configured."),
     },
 }
 
@@ -367,6 +371,12 @@ class VerifiedEmail(models.Model):
     class Meta:
         verbose_name = "Verified e-mail"
         verbose_name_plural = "Verified e-mails"
+        indexes = [
+            models.Index(
+                Upper("email"),
+                name="accounts_verifiedemail_email",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.social.user.username} - {self.email}"
@@ -737,24 +747,32 @@ class Profile(models.Model):
     def secondary_language_ids(self) -> set[int]:
         return set(self.secondary_languages.values_list("pk", flat=True))
 
-    def get_translation_order(self, translation) -> str:
-        """Returns key suitable for ordering languages based on user preferences."""
-        from weblate.trans.models import Unit
+    def get_translation_orderer(self, request):
+        """Returns function suitable for ordering languages based on user preferences."""
 
-        if isinstance(translation, Unit):
-            translation = translation.translation
-        language = translation.language
+        def get_translation_order(translation) -> str:
+            from weblate.trans.models import Unit
 
-        if language.pk in self.primary_language_ids:
-            priority = 0
-        elif language.pk in self.secondary_language_ids:
-            priority = 1
-        elif translation.is_source:
-            priority = 2
-        else:
-            priority = 3
+            if isinstance(translation, Unit):
+                translation = translation.translation
+            language = translation.language
 
-        return f"{priority}-{language}"
+            if language.pk in self.primary_language_ids:
+                priority = 0
+            elif language.pk in self.secondary_language_ids:
+                priority = 1
+            elif (
+                not self.primary_language_ids and language == request.accepted_language
+            ):
+                priority = 2
+            elif translation.is_source:
+                priority = 3
+            else:
+                priority = 4
+
+            return f"{priority}-{language}"
+
+        return get_translation_order
 
     def fixup_profile(self, request):
         fields = set()

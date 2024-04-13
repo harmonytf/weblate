@@ -41,15 +41,14 @@ jobs:
     - name: Install apt dependencies
       run: sudo ./ci/apt-install $CI_DATABASE
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: |-
           3.11
         cache: pip
         cache-dependency-path: '**/requirements*.txt'
     - name: Install pip dependencies
-      run: |
-        ./ci/pip-install migrations
+      run: ./ci/pip-install migrations
     - name: Check missing migrations
       run: ./ci/run-checkmigrate
     - name: Migrate from 5.0
@@ -58,7 +57,7 @@ jobs:
       run: |
         coverage combine
         coverage xml
-    - uses: codecov/codecov-action@v3
+    - uses: codecov/codecov-action@v4
       with:
         token: ${{secrets.CODECOV_TOKEN}}
         flags: migrations
