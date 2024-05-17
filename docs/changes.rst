@@ -1,3 +1,170 @@
+Weblate 5.5.5
+-------------
+
+Released on May 13th 2024.
+
+**Bug fixes**
+
+* False-positive merge failure alert when using push branch.
+* Cleanup of stale repositories.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/121?closed=1>`__.
+
+Weblate 5.5.4
+-------------
+
+Released on May 10th 2024.
+
+**Improvements**
+
+* Visually highlight explanation in :ref:`glossary`.
+* Add :ref:`addons` history tab in management.
+* New :ref:`alerts` when :ref:`glossary` might not work as expected.
+* :doc:`/admin/announcements` can be posted on project/language scope.
+
+**Bug fixes**
+
+* Improved handling placeables in :ref:`mt-openai`.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/120?closed=1>`__.
+
+Weblate 5.5.3
+-------------
+
+Released on May 3rd 2024.
+
+**Improvements**
+
+* Improved performance of rendering large lists of objects.
+* Added links to manage other scope :ref:`addons`.
+
+**Bug fixes**
+
+* Fixed crashes with librsvg older than 2.46.
+* Daily execution of some :ref:`addons`.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/119?closed=1>`__.
+
+Weblate 5.5.2
+-------------
+
+Released on April 26th 2024.
+
+**Bug fixes**
+
+* Fixed publishing packages to PyPI.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/118?closed=1>`__.
+
+Weblate 5.5.1
+-------------
+
+Released on April 26th 2024.
+
+**New features**
+
+* :ref:`Searching` supports ``source_changed:DATETIME``.
+* Added several new :ref:`component-language_code_style`.
+
+**Improvements**
+
+* Display more details on source string change in history.
+* :ref:`mt-microsoft-translator` now supports using custom translators.
+* Improved error handling in :ref:`invite-user`.
+* Added PNG status badge.
+* Added list of managed projects to the dashboard view.
+* More detailed status of outgoing commits.
+* Reduced memory usage.
+
+**Bug fixes**
+
+* Fixed skipped component update with some add-ons enabled.
+* Daily execution of project and site wide add-ons.
+* Allow editing strings when the source is marked for editing.
+* Updates of the last updated timestamp of a string.
+* Fixed project and site wide installation of :ref:`addon-weblate.git.squash` and :ref:`addon-weblate.discovery.discovery` add-ons.
+* Graceful handling of locking errors in the :ref:`api`.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+* There is a change in ``REST_FRAMEWORK`` setting (newly added ``EXCEPTION_HANDLER``).
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/117?closed=1>`__.
+
+Weblate 5.5
+-----------
+
+Released on April 20th 2024.
+
+**New features**
+
+* :ref:`addons` can be now installed project-wide and site-wide.
+
+* API improvements
+
+  * Added :http:get:`/api/categories/(int:id)/statistics/`.
+  * Added :http:get:`/api/projects/(string:project)/file/`.
+  * Added :http:post:`/api/groups/(int:id)/admins/`.
+  * Added :http:delete:`/api/groups/(int:id)/admins/(int:user_id)`.
+  * Improved :http:post:`/api/translations/(string:project)/(string:component)/(string:language)/units/`.
+
+* Added :ref:`mt-systran` automatic translation support.
+
+**Improvements**
+
+* Docker container now validates user password strength by default, see :envvar:`WEBLATE_MIN_PASSWORD_SCORE`.
+* Improved error reporting in :ref:`machine-translation-setup`.
+* :ref:`check-max-size` better displays rendered text.
+* Admins can now specify username and full name when :ref:`invite-user`.
+* Added :ref:`check-end-interrobang`.
+* :ref:`alerts` are now refreshed when needed, not just daily.
+* :doc:`/devel/reporting` uses specific word count for CJK languages.
+* Team membership changes are now tracked in :ref:`audit-log`.
+
+**Bug fixes**
+
+* :ref:`check-check-glossary` works better for languages not using whitespace.
+* :ref:`alerts` better handle non-latin source languages.
+* :ref:`check-max-size` sometimes ignored ``font-spacing:SPACING`` flag.
+* Fixed per-language statistics on nested categories.
+* Fixed categories listing on per-language pages.
+* Fixed :guilabel:`Needs editing` state calculation.
+* Fixed changing :ref:`component-push` with :ref:`vcs-gerrit`.
+* Fixed using categorized components in :ref:`manage`, :ref:`memory` or :ref:`auto-translation`.
+
+**Compatibility**
+
+* Several API calls might be affected by stricter validation of boolean fields by Django REST Framework. For example :http:post:`/api/projects/(string:project)/components/`.
+* Uniqueness of name and slug of a component is now enforced at the database level on PostgreSQL 15+.
+* Docker image now ships Python packages in :file:`/app/venv` and installs using :program:`uv`.
+
+**Upgrading**
+
+Please follow :ref:`generic-upgrade-instructions` in order to perform update.
+
+* There are several changes in :file:`settings_example.py`, most notable is changes in ``INSTALLED_APPS`` and ``LOGOUT_REDIRECT_URL``, please adjust your settings accordingly.
+* Weblate now requires Python 3.10 and Django 5.0.
+
+`All changes in detail <https://github.com/WeblateOrg/weblate/milestone/111?closed=1>`__.
+
 Weblate 5.4.3
 -------------
 
@@ -345,7 +512,7 @@ Released on September 10th 2023.
 * Source strings and state display for converted formats.
 * Block :ref:`component-edit_template` on formats which do not support it.
 * :ref:`check-reused` is no longer triggered for blank strings.
-* Performace issues while browsing some categories.
+* Performance issues while browsing some categories.
 * Fixed GitHub Team and Organization authentication in Docker container.
 * GitLab merge requests when using a customized SSH port.
 

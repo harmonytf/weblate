@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 from django.db.models import F, Q
 from django.utils.translation import gettext_lazy
 
@@ -37,7 +39,7 @@ class GenerateFileAddon(BaseAddon):
             return False
         return super().can_install(component, user)
 
-    def pre_commit(self, translation, author):
+    def pre_commit(self, translation, author) -> None:
         filename = self.render_repo_filename(
             self.instance.configuration["filename"], translation
         )
@@ -66,6 +68,7 @@ class LocaleGenerateAddonBase(BaseAddon):
         source_translation,
         target_translation,
         query,
+        *,
         prefix: str = "",
         suffix: str = "",
         var_prefix: str = "",
@@ -92,7 +95,7 @@ class LocaleGenerateAddonBase(BaseAddon):
             for source in source_strings:
                 multi = int(var_multiplier * len(source))
                 new_strings.append(
-                    f"{prefix}{var_prefix*multi}{source}{var_suffix*multi}{suffix}"
+                    f"{prefix}{var_prefix * multi}{source}{var_suffix * multi}{suffix}"
                 )
             target_strings = unit.get_target_plurals()
             if new_strings != target_strings or unit.state < STATE_TRANSLATED:
@@ -107,10 +110,10 @@ class LocaleGenerateAddonBase(BaseAddon):
             target_translation.invalidate_cache()
         return updated
 
-    def daily(self, component):
+    def daily(self, component) -> None:
         raise NotImplementedError
 
-    def component_update(self, component):
+    def component_update(self, component) -> None:
         raise NotImplementedError
 
 
@@ -125,21 +128,21 @@ class PseudolocaleAddon(LocaleGenerateAddonBase):
     user_name = "pseudolocale"
     user_verbose = "Pseudolocale add-on"
 
-    def daily(self, component):
+    def daily(self, component) -> None:
         # Check all strings
         query = Q(state__lte=STATE_TRANSLATED)
         if self.instance.configuration.get("include_readonly", False):
             query |= Q(state=STATE_READONLY)
         self.do_update(component, query)
 
-    def component_update(self, component):
+    def component_update(self, component) -> None:
         # Update only untranslated strings
         self.do_update(component, Q(state__lt=STATE_TRANSLATED))
 
     def get_target_translation(self, component):
         return component.translation_set.get(pk=self.instance.configuration["target"])
 
-    def do_update(self, component, query):
+    def do_update(self, component, query) -> None:
         try:
             source_translation = component.translation_set.get(
                 pk=self.instance.configuration["source"]
@@ -165,7 +168,7 @@ class PseudolocaleAddon(LocaleGenerateAddonBase):
             query=query,
         )
 
-    def post_uninstall(self):
+    def post_uninstall(self) -> None:
         try:
             target_translation = self.get_target_translation(self.instance.component)
             flags = Flags(target_translation.check_flags)
@@ -176,7 +179,7 @@ class PseudolocaleAddon(LocaleGenerateAddonBase):
             pass
         super().post_uninstall()
 
-    def post_configure_run(self):
+    def post_configure_run(self) -> None:
         super().post_configure_run()
         try:
             target_translation = self.get_target_translation(self.instance.component)
@@ -195,15 +198,15 @@ class PrefillAddon(LocaleGenerateAddonBase):
     user_name = "prefill"
     user_verbose = "Prefill add-on"
 
-    def daily(self, component):
+    def daily(self, component) -> None:
         # Check all strings
         self.do_update(component)
 
-    def component_update(self, component):
+    def component_update(self, component) -> None:
         # Update only untranslated strings
         self.do_update(component)
 
-    def do_update(self, component):
+    def do_update(self, component) -> None:
         source_translation = component.source_translation
         updated = 0
         for translation in component.translation_set.prefetch():
@@ -228,13 +231,13 @@ class FillReadOnlyAddon(LocaleGenerateAddonBase):
     user_name = "fill"
     user_verbose = "Fill read-only add-on"
 
-    def daily(self, component):
+    def daily(self, component) -> None:
         self.do_update(component)
 
-    def component_update(self, component):
+    def component_update(self, component) -> None:
         self.do_update(component)
 
-    def do_update(self, component):
+    def do_update(self, component) -> None:
         source_translation = component.source_translation
         updated = 0
         for translation in component.translation_set.prefetch():
